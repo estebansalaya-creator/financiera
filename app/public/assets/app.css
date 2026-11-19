@@ -798,3 +798,21 @@ button.header-boton { border: 0; font-family: inherit; cursor: pointer; }
 
 /* Teléfonos en las grillas (tel_enlace): con link a WhatsApp si es celular */
 .tel { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Documentación: tipo obligatorio para aprobar */
+select.celda-input.doc-obligatoria { font-weight: 700; color: var(--danger-texto); }
+
+/* ---- Solicitudes: decisión de autorización (aprobar / observar / rechazar) ---- */
+.decision { display: flex; flex-direction: column; gap: 8px; }
+.decision-op { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; }
+.decision-op input { margin-top: 3px; width: 16px; height: 16px; flex: none; }
+.decision-op strong { display: block; font-size: .9rem; }
+.decision-op small { display: block; font-size: .74rem; color: var(--text-muted); }
+.decision-ok:has(input:checked)     { background: var(--ok-bg);     border-color: var(--ok-borde); }
+.decision-warn:has(input:checked)   { background: var(--warn-bg);   border-color: var(--warn-borde); }
+.decision-danger:has(input:checked) { background: var(--danger-bg); border-color: var(--danger-borde); }
+.decision-op.deshabilitada { opacity: .6; cursor: not-allowed; }
+.td-nowrap { white-space: nowrap; }
+a.bcra-tarjeta { color: inherit; }
+a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }

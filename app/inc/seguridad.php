@@ -32,6 +32,7 @@ const PAGINAS_SIN_PERMISO = ['index.php', 'mi_clave.php', 'ayuda.php'];
 /** Pantalla => opciones de menú que la habilitan (cualquiera alcanza). */
 const PAGINAS_PERMISO = [
     'cliente.php'   => ['clientes.php'],
+    'solicitud.php' => ['solicitudes.php', 'autorizaciones.php'],
     'documento.php' => ['clientes.php'],
     'prestamo.php'  => ['prestamos.php', 'cobrar.php', 'cobranzas.php'],
     'recibo.php'    => ['cobranzas.php', 'cobrar.php'],

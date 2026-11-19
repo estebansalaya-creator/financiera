@@ -6,12 +6,16 @@ require __DIR__ . '/../inc/layout.php';
 
 // ---------------------------------------------------------------------
 // Catálogo de documentación: qué se le pide a cada cliente.
+//   «Para aprobar» dice si el documento es OBLIGATORIO (sin él cargado y
+//   sin vencer no se aprueba una solicitud de préstamo) u OPCIONAL (se
+//   pide y se muestra, pero no frena la aprobación).
 //   Toda la grilla es un solo formulario: se guardan todos los cambios
 //   juntos, en una transacción. Un documento que ya se usó no se borra:
 //   se desactiva (deja de pedirse y de ofrecerse, lo cargado queda).
 // ---------------------------------------------------------------------
 
 const DESTINATARIOS = ['F' => 'Personas', 'J' => 'Empresas', 'AMBOS' => 'Ambos'];
+const PARA_APROBAR  = ['1' => 'Obligatoria', '0' => 'Opcional'];
 
 $errores = [];
 $filasForm = null;
@@ -39,7 +43,7 @@ if (es_post()) {
     $dest  = post_arr('destinatario');
     $vig   = post_arr('vigencia_dias');
     $ord   = post_arr('orden');
-    $oblig = array_map('strval', array_keys((array) ($_POST['obligatorio'] ?? [])));
+    $oblig = array_map('strval', array_keys(array_filter((array) ($_POST['obligatorio'] ?? []), function ($x) { return $x === '1'; })));
     $act   = array_map('strval', array_keys((array) ($_POST['activo'] ?? [])));
 
     $filas = [];
@@ -124,7 +128,8 @@ function renglon_tipo(array $t, int $k): string
         . '<input name="nombre[]" value="' . h($t['nombre'] ?? '') . '" maxlength="100" class="celda-input" placeholder="Nombre del documento">'
         . ($nuevo ? '' : '<span class="segunda-linea mono">' . h($t['codigo']) . '</span>') . '</td>'
         . '<td><select name="destinatario[]" class="celda-input">' . opciones(DESTINATARIOS, $t['destinatario'] ?? 'AMBOS') . '</select></td>'
-        . '<td class="td-center"><input type="checkbox" name="obligatorio[' . $k . ']" value="1"' . (!empty($t['obligatorio']) ? ' checked' : '') . '></td>'
+        . '<td><select name="obligatorio[' . $k . ']" class="celda-input' . (!empty($t['obligatorio']) ? ' doc-obligatoria' : '') . '">'
+        . opciones(PARA_APROBAR, !empty($t['obligatorio']) ? '1' : '0') . '</select></td>'
         . '<td><input name="vigencia_dias[]" value="' . h((string) ($t['vigencia_dias'] ?? '')) . '" inputmode="numeric" class="celda-input derecha" placeholder="no vence" style="width:90px"></td>'
         . '<td><input name="orden[]" value="' . h((string) ($t['orden'] ?? '0')) . '" inputmode="numeric" class="celda-input derecha" style="width:70px"></td>'
         . '<td class="td-center">' . ($nuevo ? '<span class="td-muted">nuevo</span>'
@@ -134,7 +139,7 @@ function renglon_tipo(array $t, int $k): string
 }
 
 layout_inicio('Documentación requerida', 'clientes');
-titulo('Documentación requerida', 'Qué se le pide a cada cliente, si es obligatorio y cuánto dura', '',
+titulo('Documentación requerida', 'Qué se le pide a cada cliente, si es obligatoria u opcional para aprobar y cuánto dura', '',
        '<a href="clientes.php">Clientes</a> / Documentación requerida');
 mensajes($errores);
 ?>
@@ -147,7 +152,7 @@ mensajes($errores);
       <table class="data-table tabla-edicion" data-sin-orden>
         <thead>
           <tr>
-            <th data-no-sort>Documento</th><th data-no-sort>Se pide a</th><th class="th-center" data-no-sort>Obligatorio</th>
+            <th data-no-sort>Documento</th><th data-no-sort>Se pide a</th><th data-no-sort title="Obligatoria: sin ella cargada y sin vencer no se puede aprobar una solicitud de préstamo">Para aprobar</th>
             <th data-no-sort title="Si al subirlo no se indica vencimiento, se calcula: emisión + estos días">Vigencia (días)</th>
             <th data-no-sort>Orden</th><th class="th-center" data-no-sort>Activo</th><th class="th-right" data-no-sort>Cargados</th>
           </tr>
@@ -160,7 +165,8 @@ mensajes($errores);
     </div>
     <div class="bloque">
       <p class="campo-ayuda" style="margin:0">
-        <strong>Obligatorio</strong>: entra en la lista de la ficha y en el estado «Completa / Incompleta» del listado.
+        <strong>Obligatoria</strong>: sin ese documento cargado y sin vencer, la solicitud de préstamo no se puede aprobar; además entra en el estado «Completa / Incompleta» del cliente.
+        <strong>Opcional</strong>: se pide y se ve en la solicitud, pero no frena la aprobación.
         <strong>Vigencia</strong>: vacío si no vence (DNI, estatuto). <strong>Activo</strong>: destildado deja de pedirse y de ofrecerse al subir; lo ya cargado queda.
         Para agregar uno, completá el último renglón.
       </p>

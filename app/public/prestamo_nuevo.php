@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/prestamos.php';
+require __DIR__ . '/../inc/solicitudes.php';
 
 // ---------------------------------------------------------------------
 // Nuevo préstamo (liquidación)
@@ -14,7 +15,14 @@ require __DIR__ . '/../inc/prestamos.php';
 //      confía en lo que vino del navegador). Con advertencias, pide
 //      confirmar y el motivo; con bloqueos, no deja.
 //   Llama a sp_liquidar_prestamo y guarda los controles en el préstamo.
-//   prestamo_nuevo.php?cliente=N   viene desde la ficha del cliente
+//   prestamo_nuevo.php?solicitud=N  liquida una solicitud APROBADA: cliente,
+//                                   producto, monto, cuotas y vendedor vienen
+//                                   de la solicitud y no se cambian. Las
+//                                   advertencias ya las aceptó el que aprobó.
+//                                   Al liquidar, la solicitud queda LIQUIDADA
+//                                   con su préstamo.
+//   Sin solicitud (liquidación directa) solo entra el que autoriza; al
+//   resto lo lleva a las solicitudes aprobadas.
 // ---------------------------------------------------------------------
 
 $errores = [];
@@ -34,6 +42,40 @@ $f['fecha'] = $f['fecha'] ?: date('Y-m-d');
 $f['telemarketing'] = $f['telemarketing'] === '1' ? '1' : '0';
 $confirmo = es_post() && post_str('confirmo') === '1';
 $accion = es_post() ? post_str('accion') : '';
+
+// La solicitud aprobada que se liquida
+$idSol = (int) (es_post() ? post_str('solicitud') : get_str('solicitud'));
+$sol = null;
+if ($idSol > 0) {
+    try {
+        $sol = sol_cargar($idSol);
+    } catch (Throwable $e) {
+        $sol = null;
+    }
+    if (!$sol || $sol['estado'] !== 'APROBADA') {
+        flash('warning', $sol ? 'La solicitud ' . $sol['nro_solicitud'] . ' está ' . strtolower(ESTADOS_SOLICITUD[$sol['estado']]) . ': solo se liquida una aprobada.'
+                              : 'Esa solicitud no existe.');
+        redirigir($sol ? 'solicitud.php?id=' . $idSol : 'solicitudes.php');
+    }
+    $f['cliente'] = (string) $sol['id_cliente'];
+    $f['buscar'] = '';
+    $f['producto'] = (string) $sol['id_producto'];
+    $f['monto'] = str_replace('.', ',', (string) (float) $sol['monto']);
+    $f['plazo'] = (string) $sol['plazo'];
+    $f['vendedor'] = (string) $sol['id_vendedor'];
+    $f['telemarketing'] = (string) (int) $sol['telemarketing'];
+} elseif (!sol_autoriza()) {
+    if (puede('solicitudes.php')) {
+        if ((int) $f['cliente'] > 0) {
+            redirigir('solicitud.php?cliente=' . (int) $f['cliente']);
+        }
+        flash('info', 'Los préstamos se liquidan desde una solicitud aprobada. Estas son las que están para liquidar.');
+        redirigir('solicitudes.php?estado=APROBADA');
+    }
+    flash('warning', 'Los préstamos se liquidan desde una solicitud aprobada.');
+    redirigir('prestamos.php');
+}
+$bloq = $sol ? ' disabled' : '';
 
 /** Cliente por id, o por CUIT / CUIL / DNI escrito. */
 function buscar_cliente(string $id, string $txt): array
@@ -64,7 +106,7 @@ try {
         if (count($encontrados) === 1) {
             $cliente = $encontrados[0];
             $f['cliente'] = (string) $cliente['id_cliente'];
-            if ($f['vendedor'] === '' && !es_post()) {
+            if ($f['vendedor'] === '' && !es_post() && !$sol) {
                 $f['vendedor'] = (string) $cliente['id_vendedor'];
             }
         } elseif (count($encontrados) > 1) {
@@ -126,7 +168,7 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
     }
 
     // Lo que se revisó tiene que ser lo que se liquida
-    $firma = hash('sha256', implode('|', [$f['cliente'], $f['producto'], $f['monto'], $f['plazo'], $f['fecha'], $f['primer_vto'], $f['vendedor'], $f['comision'], $f['telemarketing']]));
+    $firma = hash('sha256', implode('|', [$f['cliente'], $f['producto'], $f['monto'], $f['plazo'], $f['fecha'], $f['primer_vto'], $f['vendedor'], $f['comision'], $f['telemarketing'], (string) $idSol]));
     if ($accion === 'liquidar' && $revisado && post_str('firma') !== $firma) {
         $aviso = 'Cambiaste datos después de revisar: mirá de nuevo el cuadro y los controles antes de liquidar.';
         $accion = 'revisar';
@@ -135,12 +177,17 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
     if ($accion === 'liquidar' && $revisado) {
         if (controles_hay($ctl, 'bloqueo')) {
             $errores[] = 'Hay controles que impiden liquidar.';
-        } elseif (controles_hay($ctl, 'advertencia') && (!$confirmo || strlen($f['motivo']) < 10)) {
+        } elseif (controles_hay($ctl, 'advertencia') && !$sol && (!$confirmo || strlen($f['motivo']) < 10)) {
             $errores[] = 'Hay advertencias: para liquidar igual, tildá la confirmación y escribí el motivo (al menos 10 letras).';
         } else {
             $pdo = db();
             $idPrestamo = 0;
-            for ($intento = 0; $intento < 3 && !$idPrestamo; $intento++) {
+            // La solicitud se toma antes de liquidar: si dos la liquidan a la vez, gana uno solo.
+            $tomada = !$sol || sol_transicion($idSol, ['APROBADA'], 'LIQUIDADA');
+            if (!$tomada) {
+                $errores[] = 'La solicitud ya fue liquidada o cambió de estado recién.';
+            }
+            for ($intento = 0; $tomada && $intento < 3 && !$idPrestamo; $intento++) {
                 $nro = prestamo_proximo_nro($intento);
                 try {
                     $st = $pdo->prepare('CALL sp_liquidar_prestamo(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, @id_prestamo)');
@@ -160,9 +207,20 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
                 }
             }
             if ($idPrestamo) {
+                $motivoCtl = controles_hay($ctl, 'advertencia') ? $f['motivo'] : null;
+                if ($sol) {
+                    $motivoCtl = 'Solicitud ' . $sol['nro_solicitud'] . ' aprobada por ' . ($sol['resuelto_por_nombre'] ?: '—')
+                               . ($sol['resolucion'] ? ': ' . $sol['resolucion'] : '');
+                    try {
+                        q('UPDATE solicitudes SET id_prestamo = ? WHERE id_solicitud = ?', [$idPrestamo, $idSol]);
+                        sol_historial($idSol, 'LIQUIDADA', 'Préstamo ' . $nro);
+                    } catch (Throwable $e) {
+                        error_log('[financiera] no se vinculó la solicitud ' . $idSol . ' con el préstamo ' . $idPrestamo . ': ' . $e->getMessage());
+                    }
+                }
                 try {
                     q('UPDATE prestamos SET controles = ?, controles_motivo = ? WHERE id_prestamo = ?',
-                      [json_encode($ctl, JSON_UNESCAPED_UNICODE), controles_hay($ctl, 'advertencia') ? substr($f['motivo'], 0, 255) : null, $idPrestamo]);
+                      [json_encode($ctl, JSON_UNESCAPED_UNICODE), $motivoCtl !== null ? substr_utf8($motivoCtl, 255) : null, $idPrestamo]);
                 } catch (Throwable $e) {
                     error_log('[financiera] no se guardaron los controles del préstamo ' . $idPrestamo . ': ' . $e->getMessage());
                 }
@@ -171,20 +229,31 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
             } elseif (!$errores) {
                 $errores[] = 'No se pudo asignar un número de préstamo. Probá de nuevo.';
             }
+            if ($sol && $tomada) {
+                sol_transicion($idSol, ['LIQUIDADA'], 'APROBADA');      // no se liquidó: la solicitud vuelve a estar para liquidar
+            }
         }
     }
 }
 
-$firma = hash('sha256', implode('|', [$f['cliente'], $f['producto'], $f['monto'], $f['plazo'], $f['fecha'], $f['primer_vto'], $f['vendedor'], $f['comision'], $f['telemarketing']]));
+$firma = hash('sha256', implode('|', [$f['cliente'], $f['producto'], $f['monto'], $f['plazo'], $f['fecha'], $f['primer_vto'], $f['vendedor'], $f['comision'], $f['telemarketing'], (string) $idSol]));
 $cft = null;
 if ($res && $cuadro) {
     $i = prestamo_tir_mensual((float) $res['neto_desembolso'], array_map(function ($c) { return (float) $c['importe']; }, $cuadro));
     $cft = $i === null ? null : pow(1 + $i, 12) - 1;
 }
 
-layout_inicio('Nuevo préstamo', 'prestamos');
-titulo('Nuevo préstamo', $cliente ? $cliente['denominacion'] . ' · ' . cuit_fmt($cliente['cuit']) : 'Liquidación con controles previos', '',
-       '<a href="prestamos.php">Préstamos</a> / Nuevo');
+$tituloPag = $sol ? 'Liquidar la solicitud ' . $sol['nro_solicitud'] : 'Liquidar préstamo';
+layout_inicio($tituloPag, 'prestamos');
+titulo($tituloPag, $cliente ? $cliente['denominacion'] . ' · ' . cuit_fmt($cliente['cuit']) : 'Liquidación directa, sin solicitud', '',
+       $sol ? '<a href="solicitudes.php">Solicitudes</a> / <a href="solicitud.php?id=' . $idSol . '">' . h($sol['nro_solicitud']) . '</a> / Liquidar'
+            : '<a href="prestamos.php">Préstamos</a> / Liquidar');
+if ($sol) {
+    alerta('Aprobada por ' . ($sol['resuelto_por_nombre'] ?: '—') . ' el ' . fecha_hora($sol['resuelto_el'])
+           . ($sol['resolucion'] ? ': ' . $sol['resolucion'] : '.') . ' Elegí la fecha de liquidación, revisá y liquidá.', 'ok');
+} else {
+    alerta('Liquidación directa: este préstamo no pasa por una solicitud ni por autorización. Lo normal es cargar una solicitud.', 'info');
+}
 if ($aviso !== '') {
     alerta($aviso, 'warning');
 }
@@ -194,6 +263,7 @@ mensajes($errores);
 <form method="post" action="prestamo_nuevo.php" id="frm-prestamo">
   <?= csrf_campo() ?>
   <input type="hidden" name="firma" value="<?= h($firma) ?>">
+  <?php if ($sol): ?><input type="hidden" name="solicitud" value="<?= $idSol ?>"><?php endif; ?>
   <div class="card">
     <?= card_head('Datos del préstamo') ?>
     <div class="bloque">
@@ -206,7 +276,7 @@ mensajes($errores);
               <a href="cliente.php?id=<?= (int) $cliente['id_cliente'] ?>"><strong><?= h($cliente['denominacion']) ?></strong></a>
               <span class="mono"><?= h(cuit_fmt($cliente['cuit'])) ?></span>
               <?= $cliente['estado'] !== 'ACTIVO' ? estado(ucfirst(strtolower($cliente['estado'])), 'danger') : '' ?>
-              <a href="prestamo_nuevo.php" class="campo-cambiar">cambiar</a>
+              <?php if (!$sol): ?><a href="prestamo_nuevo.php" class="campo-cambiar">cambiar</a><?php endif; ?>
             </div>
           </div>
         <?php else: ?>
@@ -221,7 +291,7 @@ mensajes($errores);
         <?php endif; ?>
         <div class="campo" style="--span:4">
           <label for="producto">Producto <span class="req">*</span></label>
-          <select id="producto" name="producto" required>
+          <select id="producto" name="producto" required<?= $bloq ?>>
             <option value="">Elegí…</option>
             <?php foreach ($productos as $p): ?>
               <option value="<?= (int) $p['id_producto'] ?>" <?= (string) $p['id_producto'] === $f['producto'] ? 'selected' : '' ?> <?= $p['con_tasa'] ? '' : 'disabled' ?>
@@ -233,15 +303,15 @@ mensajes($errores);
         </div>
         <div class="campo" style="--span:3">
           <label for="vendedor">Vendedor</label>
-          <select id="vendedor" name="vendedor"><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $f['vendedor'], 'Sin vendedor') ?></select>
+          <select id="vendedor" name="vendedor"<?= $bloq ?>><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $f['vendedor'], 'Sin vendedor') ?></select>
         </div>
         <div class="campo" style="--span:3">
           <label for="monto">Monto a prestar <span class="req">*</span></label>
-          <input id="monto" name="monto" value="<?= h($f['monto']) ?>" inputmode="decimal" class="derecha" required placeholder="0,00">
+          <input id="monto" name="monto" value="<?= h($f['monto']) ?>" inputmode="decimal" class="derecha" required placeholder="0,00"<?= $sol ? ' readonly' : '' ?>>
         </div>
         <div class="campo" style="--span:2">
           <label for="plazo">Cuotas <span class="req">*</span></label>
-          <input id="plazo" name="plazo" value="<?= h($f['plazo']) ?>" inputmode="numeric" class="derecha" required>
+          <input id="plazo" name="plazo" value="<?= h($f['plazo']) ?>" inputmode="numeric" class="derecha" required<?= $sol ? ' readonly' : '' ?>>
         </div>
         <div class="campo" style="--span:2">
           <label for="fecha">Liquidación</label>
@@ -258,13 +328,13 @@ mensajes($errores);
           <span class="campo-ayuda">solo si es una operación negociada</span>
         </div>
         <div class="campo campo-boton" style="--span:2">
-          <label class="campo-check"><input type="checkbox" name="telemarketing" value="1" <?= $f['telemarketing'] === '1' ? 'checked' : '' ?>> Por telemarketing</label>
+          <label class="campo-check"><input type="checkbox" name="telemarketing" value="1" <?= $f['telemarketing'] === '1' ? 'checked' : '' ?><?= $bloq ?>> Por telemarketing</label>
           <span class="campo-ayuda">define el % de comisión</span>
         </div>
       </div>
     </div>
     <div class="form-acciones">
-      <?= boton('Cancelar', 'secondary', $cliente ? 'cliente.php?id=' . (int) $cliente['id_cliente'] : 'prestamos.php', 'volver') ?>
+      <?= boton('Cancelar', 'secondary', $sol ? 'solicitud.php?id=' . $idSol : ($cliente ? 'cliente.php?id=' . (int) $cliente['id_cliente'] : 'prestamos.php'), 'volver') ?>
       <button type="submit" name="accion" value="revisar" class="btn btn-primary"><?= icono('filtro') ?><?= $revisado ? 'Revisar de nuevo' : 'Revisar' ?></button>
     </div>
   </div>
@@ -304,7 +374,7 @@ mensajes($errores);
       </table>
     </div>
     <?php if (!controles_hay($ctl, 'bloqueo')): ?>
-      <?php if (controles_hay($ctl, 'advertencia')): ?>
+      <?php if (controles_hay($ctl, 'advertencia') && !$sol): ?>
         <div class="bloque">
           <div class="campos">
             <div class="campo" style="--span:12">

@@ -48,9 +48,12 @@ El préstamo guarda la tasa con la que se liquidó: cambiar las tasas después n
 <!-- pantallas: documentos_tipos.php -->
 <!-- resumen: El catálogo de documentos del legajo y su vigencia. -->
 
-El catálogo de lo que se le pide al cliente: nombre de cada documento, a quién se le pide (personas, empresas o ambos), si es obligatorio, vigencia en días, orden y si está activo. Para agregar uno, completá el último renglón y **Guardar cambios**.
+El catálogo de lo que se le pide al cliente: nombre de cada documento, a quién se le pide (personas, empresas o ambos), si **para aprobar** es obligatoria u opcional, vigencia en días, orden y si está activo. Para agregar uno, completá el último renglón y **Guardar cambios**.
 
-Los obligatorios son los que la ficha del cliente marca en rojo si faltan, y los que el alta de préstamo controla. La vigencia calcula el vencimiento cuando al subir el archivo no se pone uno.
+- **Obligatoria**: sin ese documento cargado y sin vencer, una solicitud de préstamo **no se puede aprobar**. Es también lo que la ficha del cliente marca en rojo si falta.
+- **Opcional**: se pide y se ve en la solicitud, pero no frena la aprobación.
+
+El cambio vale desde ese momento para todas las solicitudes pendientes. La vigencia calcula el vencimiento cuando al subir el archivo no se pone uno.
 
 ## Cotizaciones
 <!-- pantallas: cotizaciones.php -->

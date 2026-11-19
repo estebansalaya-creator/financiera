@@ -127,7 +127,7 @@ try {
 layout_inicio('Préstamos', 'prestamos');
 titulo('Préstamos', 'Liquidados, con su saldo y su mora a hoy',
        boton('Exportar a Excel', 'excel', url_con(['export' => 'xlsx', 'p' => null]), 'planilla')
-     . boton('Nuevo préstamo', 'primary', 'prestamo_nuevo.php', 'agregar'));
+     . (puede('solicitudes.php') ? boton('Nueva solicitud', 'primary', 'solicitud.php', 'agregar') : ''));
 mensajes($errores);
 ?>
 
@@ -176,7 +176,7 @@ mensajes($errores);
       </thead>
       <tbody>
       <?php if (!$filas): ?>
-        <tr><td colspan="11" class="no-data"><?= $hayFiltros ? 'Ningún préstamo coincide con el filtro.' : 'Todavía no hay préstamos. Liquidá el primero con «Nuevo préstamo».' ?></td></tr>
+        <tr><td colspan="11" class="no-data"><?= $hayFiltros ? 'Ningún préstamo coincide con el filtro.' : 'Todavía no hay préstamos. Cargá una solicitud; cuando se aprueba, se liquida.' ?></td></tr>
       <?php endif; ?>
       <?php foreach ($filas as $p): ?>
         <tr>

@@ -1,7 +1,9 @@
 # Créditos
 <!-- orden: 3 -->
 
-El simulador, el alta de préstamos en dos pasos (revisar y liquidar), el listado y la ficha de cada préstamo.
+El simulador, la solicitud de préstamo, su autorización, la liquidación, el listado y la ficha de cada préstamo.
+
+Un préstamo sigue tres pasos: **solicitud** (la carga el vendedor o un operador) → **autorización** (Gerencia la aprueba, la observa o la rechaza) → **liquidación** (un operador liquida la aprobada el día del desembolso; ahí nace el préstamo).
 
 ## Simulador
 <!-- pantallas: simulador.php -->
@@ -16,32 +18,78 @@ El simulador usa el mismo cálculo que la liquidación: lo que se simula es lo q
 
 Si un producto no tiene una tasa vigente para ese plazo y monto, no se puede simular: se carga en *Tablas y parámetros* → *Productos y tasas*.
 
-## Nuevo préstamo
+## Solicitudes
+<!-- pantallas: solicitudes.php -->
+<!-- resumen: Cargar una solicitud, seguirla, corregir las observadas. -->
+
+*Créditos* → **Solicitudes**. Un vendedor ve las que cargó y las de su vendedor; Créditos y Gerencia ven todas. Las tarjetas de arriba filtran: esperan autorización, observadas, aprobadas sin liquidar y liquidadas.
+
+**Cargar una solicitud** (también desde la ficha del cliente, *Nueva solicitud*):
+
+1. Cliente: CUIT, CUIL o DNI y **Buscar**. Si es nuevo, primero se da de alta en *Clientes*.
+2. Producto, monto que pide y cuotas. Vendedor (un vendedor carga siempre a su nombre), **Telemarketing** si la venta vino por ahí, destino del préstamo y observaciones para quien autoriza.
+3. **Revisar**: muestra la cuota estimada (liquidando hoy), los controles y la documentación.
+4. **Enviar a autorización**. Queda *Pendiente* con su número (`S-000001`…). Con advertencias se puede enviar igual: quien autoriza las ve. Con un control en rojo, no.
+
+Si cambiás un dato después de revisar, pide revisar de nuevo.
+
+| Estado | Qué significa | Qué se puede hacer |
+| --- | --- | --- |
+| Pendiente | Espera autorización | Modificarla, anularla |
+| Observada | Volvió con un comentario | **Corregir y reenviar** (vuelve a Pendiente), anularla |
+| Aprobada | Lista para liquidar | Liquidarla, anularla |
+| Rechazada | No se da | Nada: si corresponde, se carga otra |
+| Liquidada | Ya es un préstamo | Ver el préstamo |
+| Anulada | Se dio de baja | Nada |
+
+Abajo de cada solicitud está el **historial**: quién hizo cada paso, cuándo y qué comentó.
+
+### Documentación
+
+La solicitud lista cada documento que le corresponde al cliente y dice si es **obligatorio** u **opcional** y si está cargado, vencido o falta. La solicitud se puede enviar sin la documentación, pero **no se puede aprobar** hasta que todo lo obligatorio esté cargado y sin vencer. Se sube en la ficha del cliente. Qué es obligatorio se define en *Tablas y parámetros* → *Documentación requerida*.
+
+## Autorizaciones
+<!-- pantallas: autorizaciones.php -->
+<!-- resumen: La cola de solicitudes: aprobar, observar o rechazar. -->
+
+*Créditos* → **Autorizaciones** (Gerencia y Administrador). Muestra las solicitudes pendientes, la más vieja arriba, con el monto, la cuota, qué dijeron los controles y si la documentación obligatoria está completa. **Revisar** abre la solicitud; ahí se elige:
+
+- **Aprobar**: queda lista para liquidar. Si hay advertencias, hay que escribir por qué se aprueba igual; queda guardado en el préstamo. No se puede aprobar si falta documentación obligatoria, si hay un control en rojo o si el cliente no está activo.
+- **Observar**: vuelve al que la cargó con tu comentario (qué corregir o qué documentación falta). Cuando la reenvía, vuelve a la cola.
+- **Rechazar**: es definitivo; pide el motivo.
+
+**Volver a controlar** actualiza la cuota y los controles a hoy (por ejemplo, después de que el cliente regularizó algo).
+
+Debajo están las aprobadas que falta liquidar y las últimas resueltas.
+
+## Liquidar préstamo
 <!-- pantallas: prestamo_nuevo.php -->
-<!-- resumen: Revisar (cuadro y controles) y liquidar. -->
+<!-- resumen: Liquidar una solicitud aprobada: fecha, revisar y liquidar. -->
 
-Un préstamo se da de alta en dos pasos: **Revisar** (cuadro y controles) y **Liquidar**. Lo que se revisa es exactamente lo que se liquida.
+Una solicitud **aprobada** se liquida desde su ficha o desde el listado (botón **Liquidar**). Cliente, producto, monto, cuotas y vendedor vienen de la solicitud y no se cambian.
 
-1. *Créditos* → **Nuevo préstamo** (o desde la ficha del cliente).
-2. Cliente: escribí CUIT, CUIL o DNI y **Buscar**. Si es nuevo, primero hay que darlo de alta.
-3. Producto (debajo muestra el rango de cuotas y montos), monto, cuotas, fecha de liquidación y primer vencimiento.
-4. Vendedor: viene el del cliente; se puede cambiar. Tildá **Telemarketing** si la venta vino por ahí: cambia la regla de comisión que se aplica. *Comisión manual* solo para operaciones negociadas; vacío = según las reglas de comisión del vendedor.
-5. **Revisar**. Aparecen los controles y el cuadro de cuotas con cuota, neto a desembolsar, total a pagar, TNA, TEA y CFT.
+1. Fecha de liquidación (hoy por defecto) y primer vencimiento (vacío = un mes después). *Comisión manual* solo para operaciones negociadas; vacío = según las reglas de comisión del vendedor.
+2. **Revisar**. Aparecen los controles a hoy y el cuadro de cuotas con cuota, neto a desembolsar, total a pagar, TNA, TEA y CFT.
+3. **Liquidar**. La solicitud pasa a *Liquidada* y queda unida a su préstamo.
+
+Las advertencias ya las aceptó quien aprobó: no se vuelven a pedir. Un control en rojo (cliente bloqueado) sí impide liquidar.
+
+**Liquidación directa.** Solo quien autoriza puede entrar a *Liquidar préstamo* sin una solicitud y cargar el préstamo completo (cliente, producto, monto…). Al resto la opción lo lleva a las solicitudes aprobadas.
 
 ### Los controles
 
 | Color | Qué significa | Ejemplos |
 | --- | --- | --- |
-| Rojo | No se puede liquidar | Cliente inactivo o bloqueado |
-| Amarillo | Se puede liquidar confirmando y escribiendo el motivo | BCRA en situación 3 o peor, cheques sin pagar, documentación incompleta o vencida, préstamos en mora, cuotas por encima del 30 % del ingreso |
+| Rojo | No se puede cargar, aprobar ni liquidar | Cliente inactivo o bloqueado |
+| Amarillo | Se puede aprobar escribiendo el motivo | BCRA en situación 3 o peor, cheques sin pagar, documentación incompleta o vencida, préstamos en mora, cuotas por encima del 30 % del ingreso |
 | Azul | Informa, no pide nada | Peor situación de los últimos 24 meses, préstamos vigentes al día |
 | Verde | En orden | Sin deudas en el BCRA, documentación completa |
 
 Si la última consulta al BCRA del cliente tiene más de 30 días, al revisar se consulta sola.
 
-### Liquidar
+### Al liquidar
 
-1. Si hay advertencias: tildá *Revisé las advertencias y el préstamo se liquida igual* y escribí el motivo (por lo menos 10 letras). Queda guardado en el préstamo.
+1. En una liquidación directa con advertencias: tildá *Revisé las advertencias y el préstamo se liquida igual* y escribí el motivo (por lo menos 10 letras). Queda guardado en el préstamo.
 2. **Liquidar**. Se asigna el número (`P-000001`, `P-000002`…), se generan las cuotas y se devenga la comisión del vendedor.
 
 Si cambiás algún dato después de revisar, el sistema pide revisar de nuevo antes de liquidar.

@@ -632,7 +632,7 @@ function renglon_telefono(array $t): string
 
 <div class="card">
   <?= card_head('Préstamos', count($prestamos) ? count($prestamos) . ' préstamos' : '',
-        boton('Nuevo préstamo', 'primary', 'prestamo_nuevo.php?cliente=' . (int) $id, 'agregar', false, true)) ?>
+        puede('solicitudes.php') ? boton('Nueva solicitud', 'primary', 'solicitud.php?cliente=' . (int) $id, 'agregar', false, true) : '') ?>
   <div class="data-table-wrap">
     <table class="data-table" data-sin-orden>
       <thead>
