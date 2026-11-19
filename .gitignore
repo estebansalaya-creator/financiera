@@ -1,0 +1,36 @@
+# financiera — lo que no va al repositorio
+
+# Conexión a la base y rutas de este servidor (credenciales). Va la plantilla.
+app/config.php
+!app/config.example.php
+
+# Lo que la aplicación escribe: documentación de los clientes (DNI, recibos,
+# balances), sesiones y logs.
+documentos/
+sesiones/
+*.log
+
+# Cargas de datos reales (planillas de comisiones con nombres de asociados).
+sql/carga_*.sql
+
+# Certificados y claves
+*.pem
+*.key
+*.crt
+*.pfx
+
+# Salidas sueltas y archivos para borrar
+Claude outputs/
+_to_delete/
+*.xlsx
+*.csv
+*.zip
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# El mensaje del próximo commit (lo usa subir_github.bat y lo borra).
+mensaje_commit*.txt
