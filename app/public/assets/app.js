@@ -92,6 +92,124 @@
   });
 })();
 
+/* ── Teléfonos: el mismo formato en todo el sistema ─────────────────────
+   input[data-tel]: al salir del campo el número queda como se guarda,
+   +54 9 11 2345-6789 (celular) o +54 11 4321-0000 (fijo). Es la misma regla
+   que tel_normalizar() / tel_fmt() de inc/ui.php, que es la que manda.
+     data-tel="movil"  siempre celular (WhatsApp, vendedores)
+     data-tel="fijo"   siempre fijo
+     data-tel="tipo"   lo dice el <select> del mismo renglón (Celular / Fijo)
+     data-tel=""       lo decide el 15 o el 9 con que se escribió */
+(function () {
+  var AREAS3 = ['220', '221', '223', '230', '236', '237', '249', '260', '261', '263', '264', '266', '280',
+                '291', '294', '297', '298', '299', '336', '341', '342', '343', '345', '348', '351', '353', '358',
+                '362', '364', '370', '376', '379', '380', '381', '383', '385', '387', '388'];
+  function largoArea(d) { return d.indexOf('11') === 0 ? 2 : (AREAS3.indexOf(d.substr(0, 3)) !== -1 ? 3 : 4); }
+
+  function normalizar(s, movil) {
+    s = s.trim();
+    if (!s) return null;
+    var intl = s[0] === '+' || s.indexOf('00') === 0;
+    var d = s.replace(/\D/g, '');
+    if (intl && d.indexOf('00') === 0) d = d.substr(2);
+    if (/^0(800|810|600|610)\d{7}$/.test(d)) return d;
+    if (intl && d.indexOf('54') !== 0) return /^[1-9]\d{7,14}$/.test(d) ? '+' + d : null;
+    var con9 = false;
+    if (d.indexOf('54') === 0 && d.length >= 12) {
+      d = d.substr(2);
+      if (d[0] === '9') { d = d.substr(1); con9 = true; }
+    }
+    d = d.replace(/^0+/, '');
+    if (d.length === 12) {
+      var largos = [largoArea(d), 2, 3, 4], hecho = false;
+      for (var i = 0; i < largos.length && !hecho; i++) {
+        var a = largos[i];
+        if (d.substr(a, 2) === '15' && (a !== 2 || d.indexOf('11') === 0)) {
+          d = d.substr(0, a) + d.substr(a + 2);
+          con9 = hecho = true;
+        }
+      }
+      if (!hecho) return null;
+    }
+    if (!/^(11|[23]\d)\d{8}$/.test(d)) return null;
+    return (movil === true || con9 ? '549' : '54') + d;
+  }
+
+  function fmt(n) {
+    var m = /^0(800|810|600|610)(\d{3})(\d{4})$/.exec(n);
+    if (m) return '0' + m[1] + ' ' + m[2] + ' ' + m[3];
+    m = /^54(9?)((?:11|[23]\d)\d{8})$/.exec(n);
+    if (!m) return n;
+    var a = largoArea(m[2]), loc = m[2].substr(a), c = loc.length - 4;
+    return '+54 ' + (m[1] ? '9 ' : '') + m[2].substr(0, a) + ' ' + loc.substr(0, c) + '-' + loc.substr(c);
+  }
+
+  function modo(inp) {
+    var m = inp.getAttribute('data-tel');
+    if (m === 'tipo') {
+      var r = inp.closest('.renglon'), sel = r && r.querySelector('select');
+      var v = sel ? sel.value : '';
+      return v === 'CELULAR' ? true : (v === 'FIJO' ? false : null);
+    }
+    return m === 'movil' ? true : (m === 'fijo' ? false : null);
+  }
+
+  function aplicar(inp, crudo) {
+    var libre = inp.hasAttribute('data-tel-libre');          // admite texto que no es un número (interno, dos líneas…)
+    var n = crudo.trim() ? normalizar(crudo, modo(inp)) : null;
+    var mal = crudo.trim() !== '' && n === null && !libre;
+    inp.classList.toggle('invalido', mal);
+    inp.title = mal ? 'No se entiende el número: escribilo con la característica, ej. 11 2345-6789' : '';
+    if (n !== null) inp.value = fmt(n);
+  }
+
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t.matches) return;
+    if (t.matches('input[data-tel]')) {
+      t.setAttribute('data-tel-crudo', t.value);              // lo que se escribió, para rehacerlo si cambia el tipo
+      aplicar(t, t.value);
+    } else if (t.matches('.renglon select')) {
+      var inp = t.closest('.renglon').querySelector('input[data-tel="tipo"]');
+      if (inp && inp.value.trim()) aplicar(inp, inp.getAttribute('data-tel-crudo') || inp.value);
+    }
+  });
+})();
+
+/* ── Menú en el celular: botón ☰ ──────────────────────────────────────
+   En pantallas chicas el menú lateral es un panel que se abre con el botón
+   del encabezado. Se cierra tocando el fondo, con Esc, al elegir una
+   pantalla o al volver a tocar ☰. Las ramas se abren sin cerrar el panel. */
+(function () {
+  var btn = document.getElementById('btn-menu');
+  var fondo = document.getElementById('menu-fondo');
+  var panel = document.getElementById('app-sidebar');
+  if (!btn || !panel) return;
+  function poner(si) {
+    document.body.classList.toggle('menu-abierto', si);
+    btn.setAttribute('aria-expanded', si ? 'true' : 'false');
+    btn.setAttribute('aria-label', si ? 'Cerrar el menú' : 'Abrir el menú');
+    if (fondo) fondo.hidden = !si;
+    if (si) {
+      var act = panel.querySelector('a.mn-hoja.active');
+      if (act) act.scrollIntoView({ block: 'center' });
+    }
+  }
+  btn.addEventListener('click', function () { poner(!document.body.classList.contains('menu-abierto')); });
+  if (fondo) fondo.addEventListener('click', function () { poner(false); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && document.body.classList.contains('menu-abierto')) poner(false);
+  });
+  panel.addEventListener('click', function (e) {
+    var a = e.target.closest('a');
+    if (a && !a.classList.contains('rama')) poner(false);
+  });
+  // Al agrandar la ventana (o girar la tablet) vuelve a ser menú fijo.
+  window.matchMedia('(min-width: 901px)').addEventListener('change', function (m) { if (m.matches) poner(false); });
+  // Volver con "atrás" desde otra pantalla no debe encontrar el panel abierto.
+  window.addEventListener('pageshow', function () { poner(false); });
+})();
+
 /* ── Menú lateral (el de gestion_sindicato) ──────────────────────────────
    - Click en una rama: la abre o la cierra. Qué ramas quedaron abiertas se
      recuerda en el navegador (localStorage), así el menú no se cierra solo

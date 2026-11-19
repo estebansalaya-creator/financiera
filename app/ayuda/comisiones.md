@@ -11,7 +11,7 @@ Quiénes venden, qué porcentaje cobra cada uno por producto, y cuánto le corre
 
 1. **Nuevo vendedor**.
 2. **Código**: el que figura en las planillas de comisiones (ALONSO, AMTAE…). Sin espacios y único; se guarda en mayúsculas.
-3. **Nombre**, **CUIT/CUIL** (opcional; si se carga, se valida el dígito y no se puede repetir) y **vínculo**: comisionista o empleado.
+3. **Nombre**, **CUIT/CUIL** (opcional; si se carga, se valida el dígito y no se puede repetir), **vínculo** (comisionista o empleado) y **celular** (con la característica, sin 0 ni 15; en la lista es un enlace a WhatsApp).
 4. **Zona**: elegí una o escribí una nueva en *o zona nueva*; se crea al guardar.
 5. **Supervisor** (otro vendedor activo) y **Usuario del sistema**, si el vendedor entra al backoffice. Un usuario se vincula a un solo vendedor.
 6. **Dar de alta**. Te lleva a la solapa *Reglas de comisión* para cargarle sus porcentajes.

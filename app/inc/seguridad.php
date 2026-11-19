@@ -24,7 +24,7 @@ const ROL_ADMIN = 'Administrador';
 const MENU_PROTEGIDO = ['admin_usuarios.php', 'admin_roles.php', 'admin_menu.php'];
 
 /** Se abren sin sesión. */
-const PAGINAS_PUBLICAS = ['login.php', 'logout.php'];
+const PAGINAS_PUBLICAS = ['login.php', 'logout.php', 'logo.php', 'manifest.php', 'icono.php'];
 
 /** Con sesión alcanza: no dependen de una opción de menú. */
 const PAGINAS_SIN_PERMISO = ['index.php', 'mi_clave.php', 'ayuda.php'];

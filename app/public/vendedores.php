@@ -23,6 +23,14 @@ const TM       = ['' => 'Cualquiera', '1' => 'Sí', '0' => 'No'];
 $errores = [];
 $reg = null;
 $reglasForm = null;
+
+// El celular del vendedor llega con sql\financiera_telefonos.sql: hasta que se
+// corra, el campo no se muestra y todo lo demás sigue andando.
+$conTel = false;
+try {
+    $conTel = (bool) q("SHOW COLUMNS FROM vendedores LIKE 'telefono'");
+} catch (Throwable $e) {
+}
 $id = (int) (es_post() ? post_str('id') : get_str('edit'));
 $solapa = get_str('solapa') === 'comisiones' ? 'comisiones' : 'datos';
 
@@ -100,7 +108,15 @@ if (es_post()) {
                 'id_supervisor' => (int) post_str('id_supervisor') ?: null,
                 'id_usuario' => (int) post_str('id_usuario') ?: null,
                 'fecha_alta' => leer_fecha(post_str('fecha_alta')),
+                'telefono' => post_str('telefono'),
                 'activo' => post_str('activo') === '1' ? 1 : 0];
+        $tel = null;
+        if ($conTel && $reg['telefono'] !== '') {
+            $tel = tel_normalizar($reg['telefono'], true);
+            if ($tel === null) {
+                $errores[] = tel_error('Celular');
+            }
+        }
         if (!preg_match('/^[A-Z0-9_.-]{2,20}$/', $reg['codigo'])) {
             $errores[] = 'El código va sin espacios, de 2 a 20 letras o números (es el que figura en las planillas de comisiones).';
         } elseif ($o = q1('SELECT nombre FROM vendedores WHERE codigo = ? AND id_vendedor <> ?', [$reg['codigo'], $id])) {
@@ -151,6 +167,9 @@ if (es_post()) {
                     q('INSERT INTO vendedores (codigo, nombre, cuit, tipo_vinculo, id_zona, id_supervisor, id_usuario, fecha_alta, activo)
                        VALUES (?,?,?,?,?,?,?,?,?)', $datos);
                     $id = (int) $pdo->lastInsertId();
+                }
+                if ($conTel) {
+                    q('UPDATE vendedores SET telefono = ? WHERE id_vendedor = ?', [$tel, $id]);
                 }
                 $pdo->commit();
                 flash('ok', '«' . $reg['nombre'] . '» ' . ($reg['id_vendedor'] ? 'guardado.' : 'dado de alta. Cargale sus reglas de comisión.'));
@@ -267,7 +286,7 @@ if ($id && $reg === null) {
 } elseif ($reg === null && get_str('nuevo') !== '') {
     $reg = ['id_vendedor' => null, 'codigo' => '', 'nombre' => '', 'cuit' => '', 'tipo_vinculo' => 'COMISIONISTA',
             'id_zona' => null, 'zona_nueva' => '', 'id_supervisor' => null, 'id_usuario' => null,
-            'fecha_alta' => date('Y-m-d'), 'activo' => 1];
+            'fecha_alta' => date('Y-m-d'), 'telefono' => '', 'activo' => 1];
 }
 
 $zonas = array_column(q('SELECT id_zona, nombre FROM zonas WHERE activo = 1 ORDER BY nombre'), 'nombre', 'id_zona');
@@ -399,6 +418,11 @@ if ($reg):
           <small class="campo-ayuda">Si el vendedor entra al sistema.</small></div>
         <div class="campo" style="--span:3"><label for="fecha_alta">Alta <span class="req">*</span></label>
           <input type="date" id="fecha_alta" name="fecha_alta" value="<?= h((string) $r['fecha_alta']) ?>" required></div>
+        <?php if ($conTel): ?>
+        <div class="campo" style="--span:3"><label for="telefono">Celular</label>
+          <input id="telefono" name="telefono" type="tel" class="mono" value="<?= h(tel_fmt((string) ($r['telefono'] ?? ''))) ?>" maxlength="25" data-tel="movil" placeholder="11 2345-6789">
+          <small class="campo-ayuda">Con la característica, sin 0 ni 15.</small></div>
+        <?php endif; ?>
         <div class="campo campo-boton" style="--span:3">
           <label class="campo-check"><input type="checkbox" name="activo" value="1" <?= (int) $r['activo'] ? 'checked' : '' ?>> Activo</label>
           <?php if (!$esNuevo && !(int) $r['activo'] && !empty($r['fecha_baja'])): ?><small class="campo-ayuda">De baja desde el <?= fecha($r['fecha_baja']) ?>.</small><?php endif; ?></div>
@@ -445,7 +469,7 @@ if ($reg):
   </form>
   <div class="data-table-wrap">
     <table class="data-table">
-      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Código</th><th>Nombre</th><th>CUIT</th><th>Vínculo</th><th>Zona</th>
+      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Código</th><th>Nombre</th><th>CUIT</th><th>Celular</th><th>Vínculo</th><th>Zona</th>
         <th>Supervisor</th><th>Usuario</th><th class="th-right">Clientes</th><th class="th-right">Préstamos vigentes</th><th class="th-right">Reglas vigentes</th><th>Estado</th></tr></thead>
       <tbody>
       <?php foreach ($lista as $v): $vid = (int) $v['id_vendedor']; ?>
@@ -462,6 +486,7 @@ if ($reg):
           <td class="td-mono td-fuerte"><?= h($v['codigo']) ?></td>
           <td><?= h($v['nombre']) ?></td>
           <td class="td-mono"><?= $v['cuit'] ? h(cuit_fmt($v['cuit'])) : '<span class="td-muted">—</span>' ?></td>
+          <td><?= tel_enlace($v['telefono'] ?? null, (string) $v['nombre']) ?: '<span class="td-muted">—</span>' ?></td>
           <td><?= h(VINCULOS[$v['tipo_vinculo']] ?? $v['tipo_vinculo']) ?></td>
           <td><?= h((string) $v['zona']) ?: '<span class="td-muted">—</span>' ?></td>
           <td><?= h((string) $v['supervisor']) ?: '<span class="td-muted">—</span>' ?></td>
@@ -472,7 +497,7 @@ if ($reg):
           <td><?= (int) $v['activo'] ? estado('Activo', 'ok') : estado('Baja', 'neutro') ?></td>
         </tr>
       <?php endforeach; ?>
-      <?php if (!$lista): ?><tr><td colspan="12" class="no-data">No hay vendedores con esos filtros.</td></tr><?php endif; ?>
+      <?php if (!$lista): ?><tr><td colspan="13" class="no-data">No hay vendedores con esos filtros.</td></tr><?php endif; ?>
       </tbody>
     </table>
   </div>

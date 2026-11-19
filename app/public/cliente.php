@@ -78,7 +78,7 @@ if (es_post()) {
     $tT = post_lista('tel_tipo'); $tN = post_lista('tel_numero'); $tO = post_lista('tel_obs');
     foreach ($tN as $i => $num) {
         if ($num !== '' || ($tO[$i] ?? '') !== '') {
-            $f['telefonos'][] = ['tipo' => $tT[$i] ?? 'CELULAR', 'numero' => preg_replace('/[^\d+\- ]/', '', $num), 'observacion' => $tO[$i] ?? ''];
+            $f['telefonos'][] = ['tipo' => $tT[$i] ?? 'CELULAR', 'numero' => $num, 'observacion' => $tO[$i] ?? ''];
         }
     }
     $form = $f;
@@ -137,9 +137,14 @@ if (es_post()) {
             $errores[] = 'Domicilio ' . ($k + 1) . ': faltan la calle, la localidad o la provincia.';
         }
     }
+    // Teléfonos: se guardan en el formato único del sistema (tel_normalizar en ui.php).
+    // «Celular» y «Fijo» lo dicen; en Laboral y Referencia lo decide el 15 o el 9.
     foreach ($f['telefonos'] as $k => $t) {
-        if (strlen(preg_replace('/\D/', '', $t['numero'])) < 6) {
-            $errores[] = 'Teléfono ' . ($k + 1) . ': el número es muy corto.';
+        $n = tel_normalizar($t['numero'], ['CELULAR' => true, 'FIJO' => false][$t['tipo']] ?? null);
+        if ($n === null) {
+            $errores[] = tel_error('Teléfono ' . ($k + 1));
+        } else {
+            $f['telefonos'][$k]['numero'] = $n;
         }
     }
 
@@ -353,7 +358,7 @@ function renglon_telefono(array $t): string
 {
     return '<div class="renglon">'
         . '<div class="campo" style="--span:2"><label>Tipo</label><select name="tel_tipo[]">' . opciones(TIPOS_TEL, $t['tipo'] ?? 'CELULAR') . '</select></div>'
-        . '<div class="campo" style="--span:3"><label>Número</label><input name="tel_numero[]" value="' . h($t['numero'] ?? '') . '" maxlength="20" inputmode="tel" placeholder="11 5555-5555"></div>'
+        . '<div class="campo" style="--span:3"><label>Número</label><input name="tel_numero[]" value="' . h(tel_fmt($t['numero'] ?? '')) . '" maxlength="25" inputmode="tel" class="mono" data-tel="tipo" placeholder="11 2345-6789"></div>'
         . '<div class="campo" style="--span:7"><label>Observación</label><input name="tel_obs[]" value="' . h($t['observacion'] ?? '') . '" maxlength="100" placeholder="De quién es, horario…"></div>'
         . '<button type="button" class="btn-accion borrar renglon-quitar" title="Quitar el teléfono" aria-label="Quitar el teléfono">' . icono('cerrar') . '</button>'
         . '</div>';

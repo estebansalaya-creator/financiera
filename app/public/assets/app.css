@@ -152,7 +152,44 @@ a:hover { text-decoration: underline; }
 .sidebar-nav > li > ul > li > a.rama { font-weight: 700; }
 .sidebar-nav a svg:not(.chevron) { flex-shrink: 0; }
 .sidebar-nav a.mn-hoja.mn-sel { background: #e1eaf7; color: var(--blue); }
-@media (max-width: 900px) { .app-sidebar { display: none; } }
+/* Celular y tablet: el menú es un panel que entra desde la izquierda con el
+   botón ☰ del encabezado (assets/app.js), sobre un fondo oscuro que lo cierra. */
+.header-menu { display: none; }
+.menu-fondo  { display: none; }
+@media (max-width: 900px) {
+  .header-menu {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 40px; height: 40px; margin-left: -6px; border: 0; border-radius: 8px;
+    background: transparent; color: #fff; cursor: pointer;
+  }
+  .header-menu:hover, .header-menu[aria-expanded="true"] { background: rgba(255,255,255,.16); }
+  .app-sidebar {
+    position: fixed; left: 0; top: 60px; bottom: 0; height: auto; z-index: 95;
+    width: min(300px, 86vw); padding-bottom: calc(18px + env(safe-area-inset-bottom));
+    transform: translateX(-102%); transition: transform .22s ease; visibility: hidden;
+    box-shadow: var(--shadow-lg); overscroll-behavior: contain;
+  }
+  body.menu-abierto .app-sidebar { transform: none; visibility: visible; }
+  .menu-fondo { display: block; position: fixed; inset: 60px 0 0 0; z-index: 94; background: rgba(15,30,55,.45); }
+  .menu-fondo[hidden] { display: none; }
+  body.menu-abierto { overflow: hidden; }
+  body.menu-abierto #btn-ayuda { display: none; }
+  /* Opciones más altas: fáciles de tocar con el dedo */
+  .sidebar-nav > li > a { padding-top: 12px; padding-bottom: 12px; }
+  .sidebar-nav > li > ul > li > a { padding-top: 10px; padding-bottom: 10px; }
+  .sidebar-nav > li > ul > li > ul > li > a,
+  .sidebar-nav > li > ul > li > ul > li > ul > li > a { padding-top: 9px; padding-bottom: 9px; }
+  .menu-buscar input { font-size: 16px; padding-top: 8px; padding-bottom: 8px; } /* 16px: iPhone no hace zoom */
+  .app-header { padding: 0 12px; gap: 10px; }
+  .app-main { padding: 16px 12px; }
+}
+@media (max-width: 600px) {
+  .header-brand small { display: none; }
+  .hb-texto { display: none; }
+  .header-boton { padding: 7px 9px; }
+  .header-user { padding: 6px 7px; }
+}
+@media print { .header-menu, .menu-fondo { display: none !important; } }
 
 /* ── 3c. Ingreso ─────────────────────────────────────────────────────── */
 .pantalla-login { align-items: center; justify-content: center; padding: 24px;
@@ -705,3 +742,59 @@ a.page-btn:hover { text-decoration: none; border-color: var(--blue); color: var(
   .manual-indice { position: static; max-height: none; }
 }
 @media print { #btn-ayuda, .manual-indice { display: none !important; } .manual { display: block; } }
+
+/* ---- PWA: botón "Instalar app" y aviso para iPhone (assets/pwa.js) ---- */
+button.header-boton { border: 0; font-family: inherit; cursor: pointer; }
+[data-instalar-app][hidden] { display: none !important; }
+.login-instalar {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  margin-top: 14px; padding: 11px 16px; border: 1px solid rgba(255,255,255,.45); border-radius: var(--radius-sm);
+  background: rgba(255,255,255,.14); color: #fff; font: inherit; font-weight: 600; font-size: .9rem; cursor: pointer;
+}
+.login-instalar:hover { background: rgba(255,255,255,.24); }
+.aviso-instalar-ios {
+  position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 1000;
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg); font-size: .85rem; line-height: 1.35;
+}
+.aviso-instalar-ios img { width: 40px; height: 40px; border-radius: 9px; flex: none; }
+.aviso-instalar-ios strong { display: block; color: var(--navy); }
+.aviso-instalar-ios svg { vertical-align: -2px; color: var(--blue); }
+.aviso-instalar-ios button {
+  margin-left: auto; flex: none; border: 0; background: none; color: var(--text-muted);
+  font-size: 1.4rem; line-height: 1; padding: 4px 6px; cursor: pointer;
+}
+@media print { .aviso-instalar-ios, [data-instalar-app] { display: none !important; } }
+
+/* ---- Logo de la empresa (Datos de la empresa) ---- */
+.header-logo.con-logo { background: #fff; padding: 3px; width: auto; min-width: 38px; max-width: 120px; }
+.header-logo.con-logo img { display: block; height: 32px; width: auto; max-width: 114px; object-fit: contain; }
+.login-marca .header-logo.con-logo { min-width: 44px; max-width: 160px; }
+.login-marca .header-logo.con-logo img { height: 38px; max-width: 154px; }
+.logo-muestras { display: flex; flex-direction: column; gap: 10px; }
+.logo-muestra { position: relative; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  min-height: 92px; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px 14px 20px; }
+.logo-muestra > small { position: absolute; right: 8px; bottom: 4px; font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; }
+.logo-muestra-clara { background: #fff; color: var(--text-muted);
+  background-image: linear-gradient(45deg, #f3f5f9 25%, transparent 25%, transparent 75%, #f3f5f9 75%),
+                    linear-gradient(45deg, #f3f5f9 25%, transparent 25%, transparent 75%, #f3f5f9 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.logo-muestra-clara img { max-width: 100%; max-height: 90px; object-fit: contain; }
+.logo-muestra-clara > span { font-size: .85rem; }
+.logo-muestra-oscura { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); color: #fff; justify-content: flex-start; }
+.logo-muestra-oscura > small { color: rgba(255,255,255,.7); }
+.logo-muestra-oscura strong { font-size: .95rem; }
+
+.icono-app { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.icono-app .campos { flex: 1; min-width: 180px; }
+.icono-app-muestras { display: flex; gap: 12px; }
+.icono-app-muestras figure { margin: 0; text-align: center; }
+.icono-app-muestras img { width: 64px; height: 64px; border-radius: 15px; box-shadow: 0 1px 6px rgba(28,90,143,.25); display: block; background: #fff; }
+.icono-app-muestras img.redondo { border-radius: 50%; }
+.icono-app-muestras figcaption { font-size: .66rem; color: var(--text-muted); margin-top: 5px; }
+.icono-app-fondos { display: flex; gap: 6px; align-items: center; }
+.icono-app-fondos input[type=color] { width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; cursor: pointer; }
+
+/* Teléfonos en las grillas (tel_enlace): con link a WhatsApp si es celular */
+.tel { white-space: nowrap; font-variant-numeric: tabular-nums; }

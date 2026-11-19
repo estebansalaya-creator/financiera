@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/ui.php';
 require_once __DIR__ . '/ayuda.php';
+require_once __DIR__ . '/pwa.php';
+require_once __DIR__ . '/empresa.php';
 
 // ---------------------------------------------------------------------
 // Marco de todas las pantallas: encabezado y menú lateral en árbol, como
@@ -41,6 +43,15 @@ function menu_html(array $nodos, ?string $activa, array &$abiertas, int $nivel =
     return $out;
 }
 
+/** El cuadrado de la marca: el logo de la empresa, o el ícono si no hay. */
+function marca_logo(int $tam): string
+{
+    $url = empresa_logo_url();
+    return $url
+        ? '<span class="header-logo con-logo"><img src="' . h($url) . '" alt=""></span>'
+        : '<span class="header-logo">' . icono('dinero', $tam) . '</span>';
+}
+
 /** $activo queda por compatibilidad: la opción activa sale de la pantalla actual. */
 function layout_inicio(string $titulo, string $activo = ''): void
 {
@@ -66,34 +77,40 @@ function layout_inicio(string $titulo, string $activo = ''): void
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= h($titulo) ?> · Financiera</title>
+<title><?= h($titulo) ?> · <?= h(empresa_nombre()) ?></title>
+<?php pwa_head(); ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/app.css?v=<?= @filemtime(__DIR__ . '/../public/assets/app.css') ?: 0 ?>">
 </head>
 <body>
 <header class="app-header">
+  <?php if ($menu !== ''): ?>
+  <button type="button" class="header-menu" id="btn-menu" aria-label="Abrir el menú" aria-controls="app-sidebar" aria-expanded="false"><?= icono('menu', 22) ?></button>
+  <?php endif; ?>
   <a class="header-brand" href="index.php">
-    <span class="header-logo"><?= icono('dinero', 20) ?></span>
-    <span><strong>Financiera</strong><small>Backoffice de préstamos</small></span>
+    <?= marca_logo(20) ?>
+    <span><strong><?= h(empresa_nombre()) ?></strong><small>Backoffice de préstamos</small></span>
   </a>
   <?php if ($u): ?>
-  <a href="index.php" class="header-boton" title="Volver al inicio" data-colapsar-menu><?= icono('casa', 14) ?>Inicio</a>
+  <a href="index.php" class="header-boton" title="Volver al inicio" data-colapsar-menu><?= icono('casa', 14) ?><span class="hb-texto">Inicio</span></a>
   <?php endif; ?>
   <div class="header-spacer"></div>
+  <button type="button" class="header-boton" data-instalar-app hidden title="Instalar la Financiera como app en este dispositivo"><?= icono('telefono', 14) ?><span class="hb-texto">Instalar app</span></button>
   <span class="header-fecha"><?= h(ucfirst($hoy)) ?></span>
   <?php if ($u): ?>
   <a href="mi_clave.php" class="header-user" title="<?= h($u['email'] . ($u['roles'] ? ' · ' . implode(', ', $u['roles']) : '')) ?> · Cambiar mi contraseña">
-    <?= icono('usuario', 16) ?><?= h($u['nombre']) ?>
+    <?= icono('usuario', 16) ?><span class="hb-texto"><?= h($u['nombre']) ?></span>
   </a>
-  <a href="logout.php" class="header-boton"><?= icono('salir', 14) ?>Salir</a>
+  <a href="logout.php" class="header-boton" title="Salir"><?= icono('salir', 14) ?><span class="hb-texto">Salir</span></a>
   <?php endif; ?>
 </header>
 <div class="app-shell">
   <?php if ($menuError): ?>
   <div class="menu-error">No se pudo cargar el menú — <?= h($menuError) ?></div>
   <?php elseif ($menu !== ''): ?>
-  <aside class="app-sidebar">
+  <div class="menu-fondo" id="menu-fondo" hidden></div>
+  <aside class="app-sidebar" id="app-sidebar">
     <a href="index.php" class="sidebar-home" data-colapsar-menu><?= icono('casa', 13) ?>Inicio</a>
     <div class="menu-buscar">
       <?= icono('buscar', 13) ?>

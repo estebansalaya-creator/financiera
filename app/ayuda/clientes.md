@@ -19,7 +19,7 @@ El listado busca por CUIT, DNI, nombre o razón social y filtra por tipo, estado
 4. Persona: apellido, nombres y DNI (se completa solo desde el CUIL y tiene que coincidir). Conviene cargar el **ingreso mensual**: se usa para controlar la relación cuota / ingreso al dar un préstamo.
 5. Empresa: razón social, tipo societario, actividad, facturación.
 6. Vendedor: el que trajo al cliente. Se propone al cargarle un préstamo.
-7. Domicilios y teléfonos: el primero de cada lista es el principal. *Agregar domicilio* / *Agregar teléfono* suman renglones; la X los quita.
+7. Domicilios y teléfonos: el primero de cada lista es el principal. *Agregar domicilio* / *Agregar teléfono* suman renglones; la X los quita. Los teléfonos van con la característica (`11 2345-6789`) y quedan en el formato del sistema (`+54 9 11 2345-6789`); el tipo dice si es celular o fijo.
 8. **Crear cliente**. Si el teléfono ya lo tiene otro cliente, avisa (no lo impide: puede ser un familiar).
 
 No se pueden cargar dos clientes con el mismo CUIT: el sistema dice cuál es el que ya existe.

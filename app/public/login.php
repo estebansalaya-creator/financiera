@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/ui.php';
+require __DIR__ . '/../inc/pwa.php';
+require __DIR__ . '/../inc/layout.php';
 
 // ---------------------------------------------------------------------
 // Ingreso: correo (o nombre de usuario) y contraseña contra la tabla
@@ -50,7 +52,8 @@ try {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ingresar · Financiera</title>
+<title>Ingresar · <?= h(empresa_nombre()) ?></title>
+<?php pwa_head(); ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700&family=DM+Mono:wght@400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/app.css">
@@ -58,8 +61,8 @@ try {
 <body class="pantalla-login">
 <main class="login-caja">
   <div class="login-marca">
-    <span class="header-logo"><?= icono('dinero', 22) ?></span>
-    <div><strong>Financiera</strong><small>Backoffice de préstamos</small></div>
+    <?= marca_logo(22) ?>
+    <div><strong><?= h(empresa_nombre()) ?></strong><small>Backoffice de préstamos</small></div>
   </div>
   <div class="card">
     <form method="post" action="login.php<?= $volver !== 'index.php' ? '?volver=' . h(rawurlencode($volver)) : '' ?>" class="login-form">
@@ -81,6 +84,7 @@ try {
       <?= boton('Ingresar', 'primary', null, null, true) ?>
     </form>
   </div>
+  <button type="button" class="login-instalar" data-instalar-app hidden><?= icono('telefono', 15) ?>Instalar la app en este celular</button>
   <p class="login-pie">¿Te olvidaste la contraseña? Pedile a un administrador que te cargue una nueva.</p>
 </main>
 </body>

@@ -100,11 +100,11 @@ try {
         $libro->hoja('Clientes')->titulo('Clientes', ($hayFiltros ? 'Filtrado · ' : '') . num($total) . ' clientes · generado el ' . date('d/m/Y H:i'))
             ->tabla(
                 [['CUIT/CUIL', 'texto', 15], ['Cliente', 'texto', 34], ['Tipo', 'texto', 15], ['DNI', 'texto', 11],
-                 ['Condición IVA', 'texto', 13], ['Email', 'texto', 28], ['Teléfono', 'texto', 16], ['Localidad', 'texto', 28],
+                 ['Condición IVA', 'texto', 13], ['Email', 'texto', 28], ['Teléfono', 'texto', 20], ['Localidad', 'texto', 28],
                  ['Vendedor', 'texto', 22], ['Préstamos vigentes', 'entero', 12], ['Documentación', 'texto', 18], ['Estado', 'texto', 11], ['Alta', 'fecha', 12]],
                 array_map(function ($c) {
                     return [cuit_fmt($c['cuit']), $c['denominacion'], TIPOS_CLIENTE[$c['tipo']] ?? $c['tipo'], $c['dni'],
-                            $c['condicion_iva'], $c['email'], $c['telefono'], $c['localidad'], $c['vendedor'],
+                            $c['condicion_iva'], $c['email'], tel_fmt($c['telefono']), $c['localidad'], $c['vendedor'],
                             $c['vigentes'], doc_estado_txt($c), ESTADOS_CLIENTE[$c['estado']] ?? $c['estado'], substr((string) $c['creado_el'], 0, 10)];
                 }, $todas),
                 [0 => ['formula' => '"Total: "&SUBTOTAL(103,{rango:B})&" clientes"', 'valor' => 'Total: ' . count($todas) . ' clientes']]
@@ -182,7 +182,7 @@ mensajes($errores);
           <td class="mono"><?= h(cuit_fmt($c['cuit'])) ?></td>
           <td class="td-fuerte"><a href="cliente.php?id=<?= (int) $c['id_cliente'] ?>"><?= h($c['denominacion']) ?></a>
             <span class="segunda-linea"><?= h(TIPOS_CLIENTE[$c['tipo']] ?? $c['tipo']) ?><?= $c['nombre_fantasia'] ? ' · ' . h($c['nombre_fantasia']) : '' ?><?= $c['email'] ? ' · ' . h($c['email']) : '' ?></span></td>
-          <td><?= h($c['telefono'] ?? '') ?></td>
+          <td><?= tel_enlace($c['telefono'] ?? null, (string) $c['denominacion']) ?></td>
           <td><?= h($c['localidad'] ?? '') ?></td>
           <td><?= h($c['vendedor'] ?? '') ?></td>
           <td class="td-right"><?= (int) $c['vigentes'] ?: '<span class="td-muted">—</span>' ?></td>

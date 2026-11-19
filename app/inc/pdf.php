@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/empresa.php';
+
 // ---------------------------------------------------------------------
 // Generador mínimo de PDF sin dependencias, con el aspecto de los
 // listados de gestion_adm (exportar_pdf / estado de cuenta):
@@ -54,6 +56,8 @@ final class PdfDoc
     private int $actual = -1;
     private bool $negrita = false;
     private float $tam = 9.0;
+    /** @var array<string, array> imágenes usadas (nombre => datos de empresa_logo_pdf / logo_preparar) */
+    private array $imagenes = [];
 
     public function __construct(bool $horizontal = true)
     {
@@ -122,6 +126,27 @@ final class PdfDoc
             . self::n($x) . ' ' . self::n($this->h - $y) . ' Td (' . self::esc($b) . ') Tj ET');
     }
 
+    /**
+     * Imagen (ver logo_preparar() en empresa.php) con la esquina de arriba a
+     * la izquierda en $x, $y (desde arriba de la hoja) y ese ancho y alto.
+     */
+    public function imagen(array $img, float $x, float $y, float $w, float $h): void
+    {
+        $clave = md5((string) $img['datos']);
+        $nombre = null;
+        foreach ($this->imagenes as $n => $i) {
+            if ($i['clave'] === $clave) {
+                $nombre = $n;
+            }
+        }
+        if ($nombre === null) {
+            $nombre = 'Im' . (count($this->imagenes) + 1);
+            $this->imagenes[$nombre] = $img + ['clave' => $clave];
+        }
+        $this->agregar('q ' . self::n($w) . ' 0 0 ' . self::n($h) . ' ' . self::n($x) . ' ' . self::n($this->h - $y - $h)
+            . ' cm /' . $nombre . ' Do Q');
+    }
+
     public function anchoTexto(string $s): float
     {
         return $this->anchoBytes(self::a1252($s));
@@ -153,12 +178,35 @@ final class PdfDoc
         $objs[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
         $kids = [];
         $n = 5;
+        // Imágenes: van antes que las páginas, que las nombran en sus recursos.
+        $xobj = '';
+        foreach ($this->imagenes as $nombre => $img) {
+            $id = $n++;
+            $xobj .= ' /' . $nombre . ' ' . $id . ' 0 R';
+            $smask = '';
+            if (!empty($img['smask'])) {
+                $idm = $n++;
+                $smask = ' /SMask ' . $idm . ' 0 R';
+                $objs[$idm] = '<< /Type /XObject /Subtype /Image /Width ' . (int) $img['w'] . ' /Height ' . (int) $img['h']
+                    . ' /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length ' . strlen($img['smask'])
+                    . " >>\nstream\n" . $img['smask'] . "\nendstream";
+            }
+            $cs = $img['cs'] === 'indexed'
+                ? '[/Indexed /DeviceRGB ' . (intdiv(strlen((string) $img['paleta']), 3) - 1) . ' <' . bin2hex((string) $img['paleta']) . '>]'
+                : $img['cs'];
+            $objs[$id] = '<< /Type /XObject /Subtype /Image /Width ' . (int) $img['w'] . ' /Height ' . (int) $img['h']
+                . ' /ColorSpace ' . $cs . ' /BitsPerComponent ' . (int) $img['bpc'] . ' /Filter ' . $img['filtro']
+                . ($img['parms'] !== '' ? ' /DecodeParms ' . $img['parms'] : '')
+                . (!empty($img['decode']) ? ' /Decode ' . $img['decode'] : '')
+                . $smask . ' /Length ' . strlen((string) $img['datos']) . " >>\nstream\n" . $img['datos'] . "\nendstream";
+        }
+        $recursos = '<< /Font << /F1 3 0 R /F2 4 0 R >>' . ($xobj !== '' ? ' /XObject <<' . $xobj . ' >>' : '') . ' >>';
         foreach ($this->paginas as $contenido) {
             $pag = $n++;
             $cont = $n++;
             $kids[] = "$pag 0 R";
             $objs[$pag] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . self::n($this->w) . ' ' . self::n($this->h)
-                        . '] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ' . $cont . ' 0 R >>';
+                        . '] /Resources ' . $recursos . ' /Contents ' . $cont . ' 0 R >>';
             $datos = $comprimir ? gzcompress($contenido, 6) : $contenido;
             $objs[$cont] = '<< /Length ' . strlen($datos) . ($comprimir ? ' /Filter /FlateDecode' : '') . " >>\nstream\n"
                          . $datos . "\nendstream";
@@ -288,12 +336,29 @@ final class PdfReporte
     private string $marca;
     private string $generado;
 
-    public function __construct(string $titulo, string $bajada = '', bool $horizontal = true, string $marca = 'Financiera')
+    /** Logo y renglones de la empresa (CUIT, domicilio, contacto) para el encabezado. */
+    private ?array $logo = null;
+    private array $datosEmpresa = [];
+    private bool $conRazon = false;
+
+    /** $marca vacía: el nombre de la empresa (Tablas y parámetros › Datos de la empresa). */
+    public function __construct(string $titulo, string $bajada = '', bool $horizontal = true, string $marca = '')
     {
         $this->pdf = new PdfDoc($horizontal);
         $this->titulo = $titulo;
         $this->bajada = $bajada;
-        $this->marca = $marca;
+        if (function_exists('empresa_nombre')) {
+            $this->marca = $marca !== '' ? $marca : empresa_nombre();
+            $this->logo = empresa_logo_pdf();
+            $this->datosEmpresa = empresa_renglones_pdf();
+            $rs = trim((string) (empresa()['razon_social'] ?? ''));
+            if ($rs !== '' && strcasecmp($rs, $this->marca) !== 0) {
+                array_unshift($this->datosEmpresa, $rs);
+                $this->conRazon = true;
+            }
+        } else {
+            $this->marca = $marca !== '' ? $marca : 'Financiera';
+        }
         $this->generado = date('d/m/Y H:i');
         $this->pagina();
     }
@@ -311,14 +376,38 @@ final class PdfReporte
         $x = $this->margen;
         $w = $this->anchoUtil();
 
-        $p->fuente(true, 8);
-        $p->texto($x, 30, pdf_mayusculas($this->marca), self::AZUL);
+        // Arriba: el logo (o el nombre) a la izquierda; a la derecha los datos
+        // de la empresa y la fecha de emisión.
+        $abajo = 30;
+        $anchoIzq = 0;
+        if ($this->logo) {
+            $altoMax = 40;
+            $anchoMax = 170;
+            $esc = min($altoMax / $this->logo['h'], $anchoMax / $this->logo['w']);
+            $lw = $this->logo['w'] * $esc;
+            $lh = $this->logo['h'] * $esc;
+            $p->imagen($this->logo, $x, 18, $lw, $lh);
+            $abajo = 18 + $lh;
+            $anchoIzq = $lw;
+        } else {
+            $p->fuente(true, 8);
+            $p->texto($x, 30, pdf_mayusculas($this->marca), self::AZUL);
+            $anchoIzq = $p->anchoTexto(pdf_mayusculas($this->marca));
+        }
+        $wDer = $w - $anchoIzq - 24;
+        $yd = 26;
+        foreach ($this->datosEmpresa as $k => $renglon) {
+            $p->fuente($k === 0 && $this->conRazon, 7.5);
+            $p->texto($x, $yd, $p->recortar($renglon, $wDer), $k === 0 ? self::NAVY : self::TENUE, 'R', $w);
+            $yd += 10;
+        }
         $p->fuente(false, 7.5);
-        $p->texto($x, 30, 'Generado el ' . $this->generado, self::TENUE, 'R', $w);
+        $p->texto($x, $yd, 'Generado el ' . $this->generado, self::TENUE, 'R', $w);
+        $abajo = max($abajo, $yd);
 
+        $y = $abajo + 22;
         $p->fuente(true, 15);
-        $p->texto($x, 50, $this->titulo, self::NAVY);
-        $y = 50;
+        $p->texto($x, $y, $this->titulo, self::NAVY);
         if ($this->bajada !== '') {
             $p->fuente(false, 8.5);
             $y += 14;

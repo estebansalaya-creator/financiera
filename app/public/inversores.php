@@ -81,7 +81,7 @@ mensajes($errores);
             <?= btn_accion('agregar', 'inversion.php?nueva=1&inversor=' . $v['id_inversor'], 'Nuevo aporte') ?></div></td>
           <td class="td-fuerte"><a href="inversor.php?id=<?= (int) $v['id_inversor'] ?>"><?= h($v['denominacion']) ?></a></td>
           <td class="mono"><?= h(cuit_fmt($v['cuit'])) ?></td>
-          <td><?= h($v['telefono'] ?? '') ?><span class="segunda-linea"><?= h($v['email'] ?? '') ?></span></td>
+          <td><?= tel_enlace($v['telefono'] ?? null, (string) $v['denominacion']) ?><span class="segunda-linea"><?= h($v['email'] ?? '') ?></span></td>
           <td class="td-right"><?= (int) $v['vigentes'] ?: '<span class="td-muted">—</span>' ?></td>
           <td class="td-right"><?= (float) $v['cap_ars'] ? money($v['cap_ars']) . '<span class="segunda-linea">dev. ' . money($v['dev_ars']) . '</span>' : '<span class="td-muted">—</span>' ?></td>
           <td class="td-right"><?= (float) $v['cap_usd'] ? dinero($v['cap_usd'], 'USD') . '<span class="segunda-linea">dev. ' . dinero($v['dev_usd'], 'USD') . '</span>' : '<span class="td-muted">—</span>' ?></td>

@@ -38,9 +38,16 @@ if (es_post()) {
     if ($f['cbu'] !== '' && strlen($f['cbu']) !== 22) {
         $errores[] = 'El CBU/CVU tiene 22 dígitos.';
     }
+    $tel = null;
+    if ($f['telefono'] !== '') {
+        $tel = tel_normalizar($f['telefono']);            // celular si se escribe con 15 o con +54 9
+        if ($tel === null) {
+            $errores[] = tel_error('Teléfono');
+        }
+    }
     if (!$errores) {
         $datos = [$f['tipo'], $f['cuit'], function_exists('mb_strtoupper') ? mb_strtoupper($f['denominacion'], 'UTF-8') : strtoupper($f['denominacion']),
-                  $f['email'] ?: null, $f['telefono'] ?: null, $f['domicilio'] ?: null, $f['cbu'] ?: null, $f['alias_cbu'] ?: null,
+                  $f['email'] ?: null, $tel, $f['domicilio'] ?: null, $f['cbu'] ?: null, $f['alias_cbu'] ?: null,
                   $f['estado'], $f['observaciones'] ?: null];
         try {
             if ($id > 0) {
@@ -129,7 +136,8 @@ mensajes($errores);
         <div class="campo" style="--span:4"><label for="email">Email</label>
           <input type="email" id="email" name="email" value="<?= h($v['email'] ?? '') ?>" maxlength="150"></div>
         <div class="campo" style="--span:3"><label for="telefono">Teléfono</label>
-          <input id="telefono" name="telefono" value="<?= h($v['telefono'] ?? '') ?>" maxlength="30"></div>
+          <input id="telefono" name="telefono" type="tel" class="mono" value="<?= h(tel_fmt($v['telefono'] ?? '')) ?>" maxlength="25" data-tel="" placeholder="11 15 2345-6789">
+          <small class="campo-ayuda">Con la característica. Un celular, con el 15.</small></div>
         <div class="campo" style="--span:5"><label for="domicilio">Domicilio</label>
           <input id="domicilio" name="domicilio" value="<?= h($v['domicilio'] ?? '') ?>" maxlength="200"></div>
         <div class="campo" style="--span:5"><label for="cbu">CBU / CVU (para pagarle)</label>

@@ -27,6 +27,12 @@ return [
     'sesion_minutos' => 480,
     'sesion_dir'     => 'D:\\financiera\\sesiones',
 
+    // WhatsApp Business (API de WhatsApp Cloud, Meta): token de acceso
+    // permanente del usuario del sistema. El número, el Phone Number ID y el
+    // WABA ID se cargan en Tablas y parámetros › Datos de la empresa; el
+    // token va acá (en Railway: variable FIN_WA_TOKEN) porque es una clave.
+    'whatsapp_token' => '',
+
     // true solo en desarrollo: muestra el detalle de los errores de base en pantalla
     'debug'   => false,
 ];

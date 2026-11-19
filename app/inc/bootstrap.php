@@ -28,6 +28,7 @@ if (is_file($cfgFile)) {
         'sesion_minutos' => (int) $env('FIN_SESION_MINUTOS', 480),
         'sesion_dir' => $env('FIN_SESION_DIR', '/data/sesiones'),
         'debug' => $env('FIN_DEBUG', '0') === '1',
+        'whatsapp_token' => $env('FIN_WA_TOKEN', ''),
     ];
     unset($env);
 } else {

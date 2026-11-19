@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1c5a8f">
+<title>Sin conexión · Financiera</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         font-family: 'DM Sans', 'Segoe UI', system-ui, sans-serif; background: #f2f5fa; color: #1a2740; }
+  .caja { background: #fff; border-radius: 10px; box-shadow: 0 2px 12px rgba(28,90,143,.10);
+          padding: 32px 28px; max-width: 340px; margin: 16px; text-align: center; }
+  img { width: 64px; height: 64px; border-radius: 14px; }
+  h1 { font-size: 1.15rem; margin: 16px 0 8px; }
+  p { color: #6b7a99; font-size: .92rem; line-height: 1.45; margin: 0 0 20px; }
+  button { background: #1a7ac2; color: #fff; border: 0; border-radius: 6px; padding: 10px 20px;
+           font: inherit; font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="caja">
+  <img src="icono.php?t=192" alt="">
+  <h1>Sin conexión</h1>
+  <p>No se pudo llegar al servidor de la Financiera. Revisá la conexión a internet del celular y volvé a intentar.</p>
+  <button type="button" onclick="location.reload()">Reintentar</button>
+</div>
+</body>
+</html>

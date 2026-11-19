@@ -1,7 +1,29 @@
 # Tablas y parámetros
 <!-- orden: 7 -->
 
-Los productos con sus tasas, qué documentación se le pide al cliente y las cotizaciones del BCRA.
+Los datos de la empresa, los productos con sus tasas, qué documentación se le pide al cliente y las cotizaciones del BCRA.
+
+## Datos de la empresa
+<!-- pantallas: empresa.php -->
+<!-- resumen: Razón social, CUIT, domicilio, WhatsApp Business y logo. -->
+
+Los datos de la financiera: razón social, nombre de fantasía, CUIT, condición frente al IVA, ingresos brutos, domicilio y contacto. Salen en el encabezado del sistema, en la pantalla de ingreso y arriba a la derecha de **todos los PDF** (recibos, planes de pago, liquidaciones, simulaciones). El nombre de fantasía es el que se ve en el sistema; si queda vacío, se usa la razón social.
+
+Con **PDF de muestra** se ve cómo queda el encabezado antes de imprimir un recibo de verdad.
+
+### Logo
+
+PNG (mejor con fondo transparente) o JPG, hasta 1 MB y 2000 px por lado. Rinde más un logo apaisado de unos 600 px de ancho. Al elegir el archivo se ve cómo queda en el PDF (fondo blanco) y en el encabezado (fondo azul, dentro de un recuadro blanco) antes de guardar. Para sacarlo, tildá **Quitar el logo** y guardá.
+
+### Ícono de la app
+
+Con **Usar el logo como ícono de la app** tildado, el logo es también el ícono de la aplicación instalada en el celular y el de la pestaña del navegador. Se ve cómo queda en iPhone/PC (cuadrado) y en Android (redondo), y se puede elegir el color de fondo. Sin logo, o destildado, queda el ícono estándar. Un celular que ya la tenía instalada toma el ícono nuevo solo en Android (puede tardar un día); en iPhone hay que volver a agregarla a la pantalla de inicio.
+
+### WhatsApp Business
+
+- **Número de WhatsApp**: el de atención de la financiera. Se escribe como se dice acá, con la característica y sin el 0 ni el 15 (*11 2345-6789*); el sistema lo guarda en formato internacional (+54 9 …). De otro país, con + y el código. **Probar el número** abre un chat para comprobarlo. Sale en los PDF.
+- **Mensaje de saludo**: el texto con que arranca el chat al escribirle a un cliente. `{cliente}` y `{empresa}` se reemplazan solos.
+- **API de WhatsApp Cloud**: el *Phone Number ID* y el *WABA ID* solo hacen falta para mandar avisos desde el sistema (recordatorios de vencimiento, recibos). El token de acceso no se carga acá: va en `config.php` (`whatsapp_token`) o en la variable `FIN_WA_TOKEN` de Railway. La pantalla muestra si está configurado.
 
 ## Productos y tasas
 <!-- pantallas: productos.php -->

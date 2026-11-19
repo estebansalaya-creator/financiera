@@ -33,7 +33,7 @@ RUN docker-php-ext-install pdo_mysql \
  && echo 'Listen ${PORT}' > /etc/apache2/ports.conf \
  && echo 'ServerName localhost' >> /etc/apache2/apache2.conf \
  && echo 'ServerTokens Prod' >> /etc/apache2/apache2.conf \
- && echo 'PassEnv PORT FIN_DB_HOST FIN_DB_PORT FIN_DB_NAME FIN_DB_USER FIN_DB_PASS FIN_DOCS_DIR FIN_DOCS_MAX_MB FIN_BCRA_CACHE_HORAS FIN_BCRA_CAINFO FIN_SESION_MINUTOS FIN_SESION_DIR FIN_DEBUG' >> /etc/apache2/apache2.conf
+ && echo 'PassEnv PORT FIN_DB_HOST FIN_DB_PORT FIN_DB_NAME FIN_DB_USER FIN_DB_PASS FIN_DOCS_DIR FIN_DOCS_MAX_MB FIN_BCRA_CACHE_HORAS FIN_BCRA_CAINFO FIN_SESION_MINUTOS FIN_SESION_DIR FIN_DEBUG FIN_WA_TOKEN' >> /etc/apache2/apache2.conf
 
 COPY app /var/www/financiera/app
 
