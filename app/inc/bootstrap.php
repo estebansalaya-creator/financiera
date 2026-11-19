@@ -5,13 +5,36 @@ declare(strict_types=1);
 // Configuración y conexión
 // ---------------------------------------------------------------------
 
+// En el servidor propio (IIS) la configuración está en config.php. En Railway
+// no hay config.php (no va al repositorio): sale de las variables FIN_*.
 $cfgFile = __DIR__ . '/../config.php';
-if (!is_file($cfgFile)) {
+if (is_file($cfgFile)) {
+    $GLOBALS['CFG'] = require $cfgFile;
+} elseif (getenv('FIN_DB_USER') !== false) {
+    $env = function (string $k, $default = null) {
+        $v = getenv($k);
+        return $v === false || $v === '' ? $default : $v;
+    };
+    $GLOBALS['CFG'] = [
+        'db_host' => $env('FIN_DB_HOST', '127.0.0.1'),
+        'db_port' => (int) $env('FIN_DB_PORT', 3306),
+        'db_name' => $env('FIN_DB_NAME', 'financiera'),
+        'db_user' => $env('FIN_DB_USER'),
+        'db_pass' => $env('FIN_DB_PASS', ''),
+        'docs_dir' => $env('FIN_DOCS_DIR', '/data/documentos'),
+        'docs_max_mb' => (int) $env('FIN_DOCS_MAX_MB', 10),
+        'bcra_cache_horas' => (int) $env('FIN_BCRA_CACHE_HORAS', 24),
+        'bcra_cainfo' => $env('FIN_BCRA_CAINFO', ''),
+        'sesion_minutos' => (int) $env('FIN_SESION_MINUTOS', 480),
+        'sesion_dir' => $env('FIN_SESION_DIR', '/data/sesiones'),
+        'debug' => $env('FIN_DEBUG', '0') === '1',
+    ];
+    unset($env);
+} else {
     http_response_code(500);
     header('Content-Type: text/plain; charset=utf-8');
-    exit("Falta config.php.\nCopiá config.example.php como config.php y completá los datos de MySQL.");
+    exit("Falta config.php (o las variables FIN_DB_* en Railway).\nCopiá config.example.php como config.php y completá los datos de MySQL.");
 }
-$GLOBALS['CFG'] = require $cfgFile;
 
 date_default_timezone_set('America/Argentina/Buenos_Aires');
 

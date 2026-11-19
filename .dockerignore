@@ -1,0 +1,9 @@
+.git
+documentos
+sesiones
+Claude outputs
+_to_delete
+sql
+app/config.php
+**/*.log
+*.bat

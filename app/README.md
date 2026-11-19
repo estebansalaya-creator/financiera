@@ -242,3 +242,13 @@ Como en gestion_sindicato: el botón **Ayuda** flotante (abajo a la derecha) y l
 - **La primera vez** crea el repositorio en la carpeta: pide la dirección del repositorio de GitHub (crearlo antes, **privado** y vacío) y, si git no los tiene, tu nombre y correo. Sube con el mensaje «primera versión».
 - **Después**: `git add -A`, muestra lo que va, pide el mensaje (o lo toma de `mensaje_commit.txt`, que después borra), pregunta, commit, `pull --rebase` y `push`.
 - **No suben** (`.gitignore`): `app\config.php` (la contraseña de la base; el .bat se niega a seguir si no está ignorado), `documentos\`, `sesiones\`, los `.log`, las cargas de datos reales `sql\carga_*.sql`, certificados, planillas y `Claude outputs\`. Sí sube `config.example.php`.
+
+## Railway
+
+El repositorio se despliega en Railway con el `Dockerfile` de la raíz (Apache + PHP 8.3, `app\public` como raíz del sitio); Railway lo usa solo al ver el archivo. En IIS no interviene.
+
+- **Sin `config.php`**: en Railway la configuración sale de variables. Obligatorias: `FIN_DB_HOST`, `FIN_DB_PORT`, `FIN_DB_USER`, `FIN_DB_PASS` (y `FIN_DB_NAME` si la base no se llama `financiera`). Con el MySQL de Railway en el mismo proyecto: `FIN_DB_HOST=${{MySQL.MYSQLHOST}}`, `FIN_DB_PORT=${{MySQL.MYSQLPORT}}`. Opcionales: `FIN_DOCS_DIR` (por defecto `/data/documentos`), `FIN_SESION_DIR` (`/data/sesiones`), `FIN_DOCS_MAX_MB`, `FIN_SESION_MINUTOS`, `FIN_BCRA_CACHE_HORAS`, `FIN_DEBUG=1`.
+- **Volumen en `/data`**: la documentación de los clientes y las sesiones. Sin volumen se pierden en cada despliegue.
+- **La base**: la app de Railway no llega al MySQL de este servidor. Hay que restaurar `financiera` (con sus procedimientos: `mysqldump --routines --triggers`) en el MySQL de Railway, o apuntar las variables a una base que se pueda alcanzar desde internet.
+- La tarea de cotizaciones corre en este servidor y actualiza la base local; si la base viva pasa a ser la de Railway, la tarea tiene que apuntar a ella.
+- HTTPS: Railway termina el certificado y avisa con `X-Forwarded-Proto`; Apache lo pasa a PHP, así la cookie de sesión va `Secure`.
