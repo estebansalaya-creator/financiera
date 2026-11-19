@@ -42,6 +42,8 @@ Si cambiás un dato después de revisar, pide revisar de nuevo.
 | Liquidada | Ya es un préstamo | Ver el préstamo |
 | Anulada | Se dio de baja | Nada |
 
+El botón **Instructivo** baja un PDF para repartir a los vendedores: cómo entrar desde el celular, cómo cargar una solicitud y qué documentación pedirle al cliente. La lista de documentación sale de lo configurado en ese momento, así que si cambia alcanza con volver a bajarlo.
+
 Abajo de cada solicitud está el **historial**: quién hizo cada paso, cuándo y qué comentó.
 
 ### Documentación
@@ -74,7 +76,7 @@ Una solicitud **aprobada** se liquida desde su ficha o desde el listado (botón 
 
 Las advertencias ya las aceptó quien aprobó: no se vuelven a pedir. Un control en rojo (cliente bloqueado) sí impide liquidar.
 
-**Liquidación directa.** Solo quien autoriza puede entrar a *Liquidar préstamo* sin una solicitud y cargar el préstamo completo (cliente, producto, monto…). Al resto la opción lo lleva a las solicitudes aprobadas.
+**Solo se liquidan solicitudes aprobadas.** No hay liquidación directa, para nadie: la opción *Liquidar préstamo* del menú muestra las solicitudes aprobadas que esperan, y desde ahí se elige cuál liquidar.
 
 ### Los controles
 
@@ -89,8 +91,7 @@ Si la última consulta al BCRA del cliente tiene más de 30 días, al revisar se
 
 ### Al liquidar
 
-1. En una liquidación directa con advertencias: tildá *Revisé las advertencias y el préstamo se liquida igual* y escribí el motivo (por lo menos 10 letras). Queda guardado en el préstamo.
-2. **Liquidar**. Se asigna el número (`P-000001`, `P-000002`…), se generan las cuotas y se devenga la comisión del vendedor.
+**Liquidar**. Se asigna el número (`P-000001`, `P-000002`…), se generan las cuotas y se devenga la comisión del vendedor.
 
 Si cambiás algún dato después de revisar, el sistema pide revisar de nuevo antes de liquidar.
 

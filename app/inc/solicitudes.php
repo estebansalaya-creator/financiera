@@ -260,3 +260,121 @@ function sol_controles_limpios(array $ctl): array
 {
     return array_values(array_filter($ctl, function ($c) { return ($c['c'] ?? '') !== 'DOC'; }));
 }
+
+// ---------------------------------------------------------------------
+// Instructivo para vendedores (PDF)
+//   Cómo cargar una solicitud desde el celular y qué documentación pedirle
+//   al cliente. La lista de documentación sale del catálogo como esté
+//   configurado en ese momento (obligatoria / opcional, vigencia), así que
+//   el PDF nunca queda viejo: se vuelve a bajar y listo.
+// ---------------------------------------------------------------------
+function sol_instructivo_pdf(): void
+{
+    require_once __DIR__ . '/pdf.php';
+    $e = empresa();
+    $nombre = empresa_nombre();
+
+    // La dirección del sistema, como la está usando quien lo baja
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+    $url = '';
+    if (preg_match('/^[A-Za-z0-9.\-]+(:\d+)?$/', $host)) {
+        $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+        $dir = rtrim(str_replace('\\', '/', dirname((string) ($_SERVER['SCRIPT_NAME'] ?? '/'))), '/');
+        $url = ($https ? 'https://' : 'http://') . $host . $dir . '/';
+    }
+
+    $docs = [];
+    try {
+        $docs = q('SELECT nombre, destinatario, obligatorio, vigencia_dias FROM documentos_tipos WHERE activo = 1 ORDER BY obligatorio DESC, orden, nombre');
+    } catch (Throwable $ex) {
+    }
+    $lista = function (string $tipo, int $obligatorio) use ($docs): array {
+        $out = [];
+        foreach ($docs as $d) {
+            if ((int) $d['obligatorio'] === $obligatorio && in_array($d['destinatario'], [$tipo, 'AMBOS'], true)) {
+                $out[] = [$d['nombre'], $d['vigencia_dias'] ? 'Con no más de ' . (int) $d['vigencia_dias'] . ' días de emitido.' : ''];
+            }
+        }
+        return $out;
+    };
+
+    $rep = new PdfReporte('Cómo cargar una solicitud de préstamo', 'Instructivo para vendedores · ' . $nombre, false);
+
+    $rep->seccion('1. Entrar al sistema');
+    $pasos = [];
+    if ($url !== '') {
+        $pasos[] = ['Abrí en el celular: ' . $url, 'Entrá con tu correo y tu contraseña. Si te la olvidaste, pedile una nueva a un administrador.'];
+    } else {
+        $pasos[] = 'Abrí el sistema en el celular y entrá con tu correo y tu contraseña.';
+    }
+    $pasos[] = ['Instalalo como aplicación, así queda con su ícono en el teléfono.',
+                'Android: botón «Instalar app». iPhone: en Safari, tocá Compartir y después «Agregar a inicio».'];
+    $pasos[] = 'El menú se abre con el botón de las tres rayas, arriba a la izquierda.';
+    $rep->lista($pasos, 'n');
+
+    $rep->seccion('2. Antes: el cliente tiene que estar cargado');
+    $rep->lista([
+        ['Menú Clientes > Clientes. Buscalo por CUIT, CUIL o DNI.', 'Si no está, dalo de alta con «Nuevo cliente»: datos personales, domicilio y teléfono.'],
+        ['El teléfono va con la característica: 11 2345-6789.', 'Sin el 0 ni el 15. El sistema lo acomoda solo; si queda en rojo, falta la característica.'],
+        'Cargá el ingreso mensual: con ese dato el sistema controla que la cuota no pase del tope.',
+    ], 'n');
+
+    $rep->seccion('3. Cargar la solicitud');
+    $rep->lista([
+        'Menú Créditos > Solicitudes > «Nueva solicitud». También desde la ficha del cliente.',
+        'Escribí el CUIT, CUIL o DNI del cliente y tocá «Buscar».',
+        ['Elegí el producto y escribí el monto que pide y la cantidad de cuotas.', 'Debajo del producto dice entre cuántas cuotas y qué montos admite.'],
+        ['Completá el destino del préstamo y las observaciones.', 'Todo lo que le sirva a quien autoriza: antigüedad laboral, si ya fue cliente, referencias.'],
+        ['Tocá «Revisar».', 'Vas a ver la cuota estimada, los controles (BCRA, mora, relación cuota / ingreso) y la documentación que falta.'],
+        ['Tocá «Enviar a autorización».', 'Queda con un número (S-000001) y en estado Pendiente. Si hay un control en rojo, no se puede enviar.'],
+    ], 'n');
+
+    $rep->seccion('4. Documentación que hay que pedirle al cliente');
+    $rep->parrafo('Se sube en la ficha del cliente (fotos o PDF, desde el celular). La solicitud se puede enviar antes de tenerla completa, '
+                . 'pero NO SE APRUEBA hasta que esté cargado y sin vencer todo lo obligatorio.');
+    foreach (['F' => 'Si el cliente es una persona', 'J' => 'Si el cliente es una empresa'] as $tipo => $titulo) {
+        $obl = $lista($tipo, 1);
+        $opc = $lista($tipo, 0);
+        if (!$obl && !$opc) {
+            continue;
+        }
+        $rep->reservar(110);
+        $rep->parrafo($titulo, 10, PdfReporte::NAVY, true);
+        if ($obl) {
+            $rep->parrafo('Obligatoria (sin esto no se aprueba):', 8.5, PdfReporte::PELIGRO, true);
+            $rep->lista($obl, 'c');
+        } else {
+            $rep->parrafo('No hay documentación obligatoria.', 8.5, PdfReporte::TENUE);
+        }
+        if ($opc) {
+            $rep->parrafo('Opcional (suma, pero no frena la aprobación):', 8.5, PdfReporte::TENUE, true);
+            $rep->lista($opc, 'c');
+        }
+    }
+    if (!$docs) {
+        $rep->parrafo('Todavía no hay documentación definida en el sistema.', 9, PdfReporte::TENUE);
+    }
+
+    $rep->seccion('5. Seguir la solicitud');
+    $rep->parrafo('En Créditos > Solicitudes ves solo las tuyas y en qué estado están:');
+    $rep->lista([
+        ['Pendiente: espera que la autoricen.', 'Mientras tanto la podés modificar o anular.'],
+        ['Observada: te la devolvieron con un comentario.', 'Abrila, leé qué piden, tocá «Corregir y reenviar», arreglá lo que falte (o subí la documentación) y volvé a enviarla.'],
+        ['Aprobada: ya está autorizada.', 'Falta que la administración la liquide; ahí se le desembolsa al cliente.'],
+        'Rechazada: no se otorga. El motivo queda escrito en la solicitud.',
+        ['Liquidada: el préstamo ya existe.', 'La comisión se calcula sobre el préstamo liquidado.'],
+        'Anulada: se dio de baja (el cliente desistió o se cargó por error).',
+    ]);
+
+    $contacto = array_filter([
+        !empty($e['whatsapp_numero']) ? 'WhatsApp ' . tel_fmt((string) $e['whatsapp_numero']) : '',
+        !empty($e['telefono']) ? 'Teléfono ' . tel_fmt((string) $e['telefono']) : '',
+        (string) ($e['email'] ?? ''),
+    ], 'strlen');
+    if ($contacto) {
+        $rep->seccion('Consultas');
+        $rep->parrafo(implode(' · ', $contacto));
+    }
+    $rep->nota('La lista de documentación sale de la configuración del sistema al ' . date('d/m/Y') . '. Si cambia, volvé a bajar este instructivo.');
+    $rep->enviar('instructivo-solicitudes.pdf');
+}

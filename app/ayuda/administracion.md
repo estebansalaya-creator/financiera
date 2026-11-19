@@ -13,11 +13,11 @@ Usuarios, roles, permisos y menú, y lo que necesita saber quien mantiene el sis
 | Rol inicial | Qué tiene |
 | --- | --- |
 | Administrador | Todo, incluida la Administración del Sistema |
-| Gerencia | Todo lo operativo (también Vendedores), sin la Administración del Sistema |
-| Créditos | Simulador, Nuevo préstamo, Préstamos, Clientes, Consulta BCRA, Pagos y caja |
+| Gerencia | Todo lo operativo (también Vendedores, Autorizaciones y Datos de la empresa), sin la Administración del Sistema |
+| Créditos | Simulador, Solicitudes (todas), Liquidar préstamo, Préstamos, Clientes, Consulta BCRA, Pagos y caja |
 | Cobranzas | Préstamos, Clientes, Cobrar, Pagos y caja, Importar lote |
 | Inversiones | Aportes, Inversores, Cotizaciones |
-| Vendedor | Simulador, Clientes, Consulta BCRA |
+| Vendedor | Simulador, Solicitudes (solo las suyas), Clientes, Consulta BCRA |
 
 ## Usuarios
 <!-- pantallas: admin_usuarios.php -->

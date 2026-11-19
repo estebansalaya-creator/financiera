@@ -173,6 +173,7 @@ mensajes($errores);
     </div>
     <div class="form-acciones">
       <?= boton('Volver', 'secondary', 'clientes.php', 'volver') ?>
+      <?= puede('solicitudes.php') ? boton('Instructivo para vendedores', 'pdf', 'solicitudes.php?instructivo=pdf', 'pdf', false, false, ['target' => '_blank', 'rel' => 'noopener']) : '' ?>
       <?= boton('Guardar cambios', 'primary', null, 'guardar', true) ?>
     </div>
   </div>

@@ -24,7 +24,7 @@ El listado busca por CUIT, DNI, nombre o razón social y filtra por tipo, estado
 
 No se pueden cargar dos clientes con el mismo CUIT: el sistema dice cuál es el que ya existe.
 
-Al pie de la ficha están sus préstamos y el botón **Nuevo préstamo**, que abre el alta con el cliente ya elegido.
+Al pie de la ficha están sus préstamos y el botón **Nueva solicitud**, que abre la solicitud de préstamo con el cliente ya elegido.
 
 ## Documentación del cliente
 <!-- pantallas: documento.php -->

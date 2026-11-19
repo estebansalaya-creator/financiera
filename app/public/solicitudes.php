@@ -10,11 +10,18 @@ require __DIR__ . '/../inc/solicitudes.php';
 //   Un vendedor ve las que cargó y las de su vendedor; el que tiene
 //   «Autorizaciones» o «Préstamos» en el menú las ve todas.
 //   Paginado en el servidor; el Excel trae todo el filtro.
+//   ?instructivo=pdf  el instructivo para vendedores, con la documentación
+//                     requerida como esté configurada en ese momento
 //   ?estado=ABIERTAS  pendientes + observadas + aprobadas (las que
 //                     todavía tienen algo por hacer)
 // ---------------------------------------------------------------------
 
 const FILTRO_ESTADO = ['ABIERTAS' => 'Abiertas (todas)'] + ESTADOS_SOLICITUD;
+
+if (get_str('instructivo') === 'pdf') {
+    sol_instructivo_pdf();                 // cómo cargar una solicitud y qué documentación pedir
+    exit;
+}
 
 $errores = [];
 $fQ      = trim(get_str('q'));
@@ -122,7 +129,8 @@ $m = function (string $e) use ($cuenta): float { return (float) ($cuenta[$e]['mo
 
 layout_inicio('Solicitudes', '');
 titulo('Solicitudes de préstamo', $todas ? 'Se cargan, las autoriza Gerencia y después se liquidan' : 'Las que cargaste y cómo van',
-       boton('Exportar a Excel', 'excel', url_con(['export' => 'xlsx', 'p' => null]), 'planilla')
+       boton('Instructivo', 'pdf', 'solicitudes.php?instructivo=pdf', 'pdf', false, false, ['target' => '_blank', 'rel' => 'noopener', 'title' => 'Cómo cargar una solicitud y qué documentación pedir, en PDF'])
+     . boton('Exportar a Excel', 'excel', url_con(['export' => 'xlsx', 'p' => null]), 'planilla')
      . boton('Nueva solicitud', 'primary', 'solicitud.php', 'agregar'));
 mensajes($errores);
 ?>

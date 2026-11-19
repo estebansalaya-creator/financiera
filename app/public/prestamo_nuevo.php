@@ -21,8 +21,8 @@ require __DIR__ . '/../inc/solicitudes.php';
 //                                   advertencias ya las aceptó el que aprobó.
 //                                   Al liquidar, la solicitud queda LIQUIDADA
 //                                   con su préstamo.
-//   Sin solicitud (liquidación directa) solo entra el que autoriza; al
-//   resto lo lleva a las solicitudes aprobadas.
+//   Sin una solicitud aprobada no se liquida, sea quien sea: la opción del
+//   menú lleva a las solicitudes aprobadas, y desde ahí se elige cuál.
 // ---------------------------------------------------------------------
 
 $errores = [];
@@ -64,7 +64,7 @@ if ($idSol > 0) {
     $f['plazo'] = (string) $sol['plazo'];
     $f['vendedor'] = (string) $sol['id_vendedor'];
     $f['telemarketing'] = (string) (int) $sol['telemarketing'];
-} elseif (!sol_autoriza()) {
+} else {
     if (puede('solicitudes.php')) {
         if ((int) $f['cliente'] > 0) {
             redirigir('solicitud.php?cliente=' . (int) $f['cliente']);
@@ -245,14 +245,12 @@ if ($res && $cuadro) {
 
 $tituloPag = $sol ? 'Liquidar la solicitud ' . $sol['nro_solicitud'] : 'Liquidar préstamo';
 layout_inicio($tituloPag, 'prestamos');
-titulo($tituloPag, $cliente ? $cliente['denominacion'] . ' · ' . cuit_fmt($cliente['cuit']) : 'Liquidación directa, sin solicitud', '',
+titulo($tituloPag, $cliente ? $cliente['denominacion'] . ' · ' . cuit_fmt($cliente['cuit']) : 'Solicitud aprobada', '',
        $sol ? '<a href="solicitudes.php">Solicitudes</a> / <a href="solicitud.php?id=' . $idSol . '">' . h($sol['nro_solicitud']) . '</a> / Liquidar'
             : '<a href="prestamos.php">Préstamos</a> / Liquidar');
 if ($sol) {
     alerta('Aprobada por ' . ($sol['resuelto_por_nombre'] ?: '—') . ' el ' . fecha_hora($sol['resuelto_el'])
            . ($sol['resolucion'] ? ': ' . $sol['resolucion'] : '.') . ' Elegí la fecha de liquidación, revisá y liquidá.', 'ok');
-} else {
-    alerta('Liquidación directa: este préstamo no pasa por una solicitud ni por autorización. Lo normal es cargar una solicitud.', 'info');
 }
 if ($aviso !== '') {
     alerta($aviso, 'warning');

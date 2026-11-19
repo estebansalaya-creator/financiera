@@ -15,7 +15,7 @@ app\
   instalar_iis.ps1/.bat  crea el sitio en IIS (correr como administrador)
   inc\                 no se publica
     bootstrap.php      conexión, formato es-AR, formularios (CSRF, mensajes, números)
-    ui.php             piezas de pantalla (título, tarjetas, botones, estados, paginador, CUIT)
+    ui.php             piezas de pantalla (título, tarjetas, botones, estados, paginador, CUIT, teléfonos)
     layout.php         encabezado y menú lateral;  iconos.php  los íconos de gestion_adm
     seguridad.php      sesión, login, permisos (el esquema de gestion_sindicato)
     admin.php          piezas de Administración del Sistema (árbol, usos, reglas)
@@ -23,6 +23,9 @@ app\
     documentos.php     carpeta, validación y tamaños de la documentación
     bcra.php           API de la Central de Deudores, caché e informe
     prestamos.php      controles al liquidar, simulación, número de préstamo
+    solicitudes.php    solicitudes de préstamo: estados, quién ve y autoriza, documentación para aprobar
+    empresa.php        datos de la empresa, logo (PNG/JPG → PDF), ícono de la app, WhatsApp
+    pwa.php            lo que va en el <head> para instalar la app en el celular
     cobranzas.php      estado de cuenta, registrar pago, medios de pago
     inversiones.php    modalidades, monedas, cálculo y liquidación de aportes
     cotizaciones.php   API de Estadísticas Cambiarias del BCRA
@@ -35,16 +38,20 @@ app\
     admin_usuarios.php, admin_roles.php, admin_permisos.php, admin_menu.php   Administración del Sistema
     simulador.php, clientes.php, cliente.php, comisiones.php, productos.php
     documento.php      sube, muestra, descarga y da de baja la documentación
-    documentos_tipos.php  catálogo: qué documentación se pide
+    documentos_tipos.php  catálogo: qué documentación se pide y si es obligatoria u opcional para aprobar
     bcra.php           consulta de deudores del BCRA (cualquier CUIT)
-    prestamos.php, prestamo.php, prestamo_nuevo.php   listado, ficha y alta (liquidación)
+    solicitudes.php, solicitud.php, autorizaciones.php   solicitud de préstamo, su ficha y la cola de autorización
+    prestamos.php, prestamo.php, prestamo_nuevo.php   listado, ficha y liquidación (de una solicitud aprobada)
+    empresa.php, logo.php   datos de la empresa y su logo
+    manifest.php, icono.php, sw.js, offline.html   la app instalable (PWA)
     cobranzas.php, cobrar.php, recibo.php, lote.php   pagos, cobro, recibo y lotes CSV
     inversiones.php, inversion.php, inversores.php, inversor.php   aportes de capital y liquidación de intereses
     cotizaciones.php   moneda extranjera (BCRA)
     vendedores.php     ABM de vendedores, zonas y sus reglas de comisión
     ayuda.php          índice de los manuales (busca en todos) y cada manual (?m=)
     assets\app.css     estilos (los de gestion_adm)
-    assets\app.js      diálogo de confirmación, renglones, validación de CUIT, menú lateral, árbol de permisos
+    assets\app.js      diálogo de confirmación, renglones, validación de CUIT, formato de teléfonos, menú lateral (y ☰ en el celular), árbol de permisos
+    assets\pwa.js      registra el service worker, botón «Instalar app» y aviso para iPhone
     assets\tabla.js    orden por columna y paginación de las grillas del navegador
     web.config         límites de subida de IIS;  .user.ini  los de PHP
 documentos\           archivos de la documentación (fuera de app\, no se publica)
@@ -78,7 +85,8 @@ sesiones\             sesiones de PHP (config: sesion_dir)
    ```
 
    Pide la contraseña (vacía = genera una y la muestra). Con `--rol=Gerencia` (u otro) crea el usuario con ese rol. Si el correo ya existe, le cambia la contraseña y lo reactiva: sirve también para destrabar a un administrador.
-10. Abrí el sitio: pide ingresar y después entra a la primera pantalla del menú del usuario.
+10. **Empresa, teléfonos y solicitudes:** corré `sql\financiera_empresa.sql` (datos de la empresa, logo, opción de menú), `sql\financiera_telefonos.sql` (celular del vendedor) y `sql\financiera_solicitudes.sql` (solicitudes, historial y las opciones Solicitudes y Autorizaciones). Después cargá los datos y el logo en *Tablas y parámetros › Datos de la empresa*.
+11. Abrí el sitio: pide ingresar y después entra a la primera pantalla del menú del usuario.
 
 Para ver el detalle de un error de base durante el desarrollo, poné `'debug' => true` en `config.php`. En producción dejalo en `false`, porque si no los mensajes de MySQL se muestran en pantalla.
 
@@ -88,6 +96,8 @@ Para ver el detalle de un error de base durante el desarrollo, poné `'debug' =>
 |---|---|---|---|
 | Simulador | `simulador.php` | Listo | `sp_simular_prestamo` (el mismo motor que la liquidación) |
 | Clientes | `clientes.php`, `cliente.php`, `documento.php` | Listo | `clientes`, `clientes_personas`, `clientes_empresas`, `domicilios`, `telefonos`, `clientes_documentos` |
+| Solicitudes y autorización | `solicitudes.php`, `solicitud.php`, `autorizaciones.php` | Listo | `solicitudes`, `solicitudes_historial`, `documentos_tipos.obligatorio` |
+| Datos de la empresa | `empresa.php`, `logo.php`, `manifest.php`, `icono.php` | Listo | `empresa` (una fila: datos, logo, ícono de la app, WhatsApp) |
 | Préstamos | `prestamos.php`, `prestamo.php`, `prestamo_nuevo.php` | Listo | `sp_simular_prestamo`, `sp_liquidar_prestamo`, `sp_estado_cuenta`, `sp_anular_prestamo` |
 | Cobranzas | `cobranzas.php`, `cobrar.php`, `recibo.php`, `lote.php` | Listo | `sp_estado_cuenta`, `sp_registrar_pago`, `sp_anular_pago`, `lotes_cobranza` |
 | Consulta BCRA | `bcra.php` (y en la ficha del cliente) | Listo | API pública de la Central de Deudores → `consultas_bcra` |
@@ -149,15 +159,36 @@ El mismo esquema que gestion_sindicato:
 - El BCRA informa la deuda en miles de pesos; la pantalla la muestra en pesos.
 - **Generar PDF** del informe (tarjetas, deuda actual, grilla de 24 meses en colores y cheques), desde la ficha o desde Consulta BCRA. **Guardar en documentación** lo agrega al legajo del cliente como «Informe Central de Deudores (BCRA)», con la fecha de la consulta; la misma consulta no se guarda dos veces.
 
+### Solicitudes y autorización
+
+Circuito: **solicitud** → **autorización** → **liquidación**. El préstamo nace recién al liquidar.
+
+- **Solicitud** (`solicitud.php`): cliente, producto, monto, cuotas, vendedor, destino y observaciones. *Revisar* simula a hoy y corre los controles; *Enviar a autorización* la deja `PENDIENTE` con número `S-000001`… Un control que bloquea impide cargarla; las advertencias no.
+- **Quién ve qué**: con «Autorizaciones» o «Préstamos» en el menú, todas; el resto (rol Vendedor), las que cargó y las de su vendedor (`vendedores.id_usuario`). Un vendedor carga siempre a su nombre.
+- **Autorización** (`autorizaciones.php`, Gerencia y Administrador): aprobar, observar (vuelve al que la cargó; al corregirla vuelve a `PENDIENTE`) o rechazar. Observar y rechazar piden comentario; aprobar con advertencias también.
+- **Documentación**: `documentos_tipos.obligatorio` dice si un documento es obligatorio u opcional **para aprobar**. Sin todos los obligatorios cargados y sin vencer no se aprueba (se mira en el momento). Los opcionales se muestran y no frenan.
+- **Estados**: `PENDIENTE`, `OBSERVADA`, `APROBADA`, `RECHAZADA`, `LIQUIDADA`, `ANULADA`. Cada cambio es un `UPDATE … WHERE estado = el esperado` (si dos resuelven a la vez, gana uno) y deja un renglón en `solicitudes_historial`.
+- **Liquidar** (`prestamo_nuevo.php?solicitud=N`): los datos vienen de la solicitud y no se cambian; se elige fecha, primer vencimiento y comisión manual. Las advertencias no se vuelven a confirmar: el motivo guardado en el préstamo es la aprobación. La solicitud se toma (`LIQUIDADA`) antes de llamar a `sp_liquidar_prestamo` y se devuelve a `APROBADA` si la liquidación falla.
+- **No hay liquidación directa**: sin `?solicitud=N` de una aprobada, `prestamo_nuevo.php` lleva a las solicitudes aprobadas, sea quien sea el usuario.
+
+### Datos de la empresa, logo y app instalable
+
+- **Datos** (`empresa.php`, tabla `empresa`, una fila): razón social, fantasía, CUIT, IVA, IIBB, domicilio, contacto. Salen en el encabezado, en el ingreso y en todos los PDF (`PdfReporte` los toma solo).
+- **Logo**: PNG o JPG hasta 1 MB, guardado en la base (sale igual en IIS y en Railway). Para los PDF se prepara al subirlo (`logo_preparar`: el PNG con transparencia se separa en color + máscara, sin GD). Lo sirve `logo.php`.
+- **App instalable (PWA)**: `manifest.php` arma el manifiesto con el nombre y los íconos; `sw.js` no guarda pantallas con datos (solo `offline.html` y el ícono). Con logo cargado, el navegador arma los íconos (32, 180, 192, 512 y maskable) al guardar y los sirve `icono.php`. Solo se ofrece instalar por HTTPS.
+- **WhatsApp Business**: número, saludo (`{cliente}`, `{empresa}`) y Phone Number ID / WABA ID de la API de WhatsApp Cloud. El token va en `config.php` (`whatsapp_token`) o `FIN_WA_TOKEN`. Por ahora solo se usan el número y el saludo (links `wa.me`); no hay envío automático.
+- **Teléfonos**: un solo formato en todo el sistema (`tel_normalizar` / `tel_fmt` en `ui.php`, y lo mismo en `app.js`): `5491123456789` celular, `541143210000` fijo, `+…` otro país.
+- **Hora**: la conexión fija `time_zone = '-03:00'`, para que `NOW()` y `CURDATE()` den hora argentina también en Railway (UTC).
+
 ### Préstamos
 
-- **Nuevo préstamo** (desde el menú o desde la ficha del cliente): cliente, producto, monto, cuotas, fecha de liquidación, primer vencimiento, vendedor (por defecto el del cliente) y comisión manual opcional.
+- **Liquidar préstamo** (solo desde una solicitud aprobada): cliente, producto, monto, cuotas, fecha de liquidación, primer vencimiento, vendedor (por defecto el del cliente) y comisión manual opcional.
 - **Revisar** muestra el cuadro de cuotas (el mismo motor que el simulador), cuota, neto a desembolsar, TNA, TEA y CFT, y corre los **controles**:
   - *Bloquean*: cliente inactivo o bloqueado (y lo que valida el procedure: producto, rango de monto y plazo, tasa vigente).
   - *Advierten*: situación en el BCRA peor que `CONTROL_BCRA_SITUACION_MAX` (2), cheques rechazados sin pagar, documentación obligatoria incompleta o vencida, préstamos en mora, cuotas vigentes más la nueva por encima de `CONTROL_CUOTA_INGRESO_MAX` (30 %) del ingreso.
   - *Informan*: peor situación de los últimos 24 meses, préstamos vigentes al día, cheques ya pagados.
   - Si la consulta al BCRA tiene más de `CONTROL_BCRA_DIAS` (30), la hace en el momento.
-- **Liquidar**: con advertencias pide tildar la confirmación y escribir el motivo. Vuelve a simular y controlar en el servidor; si se cambió algún dato después de revisar, pide revisar de nuevo. Numera `P-000001`, `P-000002`… (`NRO_PRESTAMO_PREFIJO`). Los controles y el motivo quedan guardados en el préstamo.
+- **Liquidar**: las advertencias ya las aceptó quien aprobó la solicitud. Vuelve a simular y controlar en el servidor; si se cambió algún dato después de revisar, pide revisar de nuevo. Numera `P-000001`, `P-000002`… (`NRO_PRESTAMO_PREFIJO`). Los controles y el motivo quedan guardados en el préstamo.
 - **Listado**: tarjetas (cantidad, capital, saldo de capital, en mora), filtros por estado, mora (al día, en mora, tramos 1-30 / 31-60 / 61-90 / +90), producto, vendedor y fechas; Excel con todo el filtro.
 - **Ficha**: datos y tasas, controles al liquidar, cuotas con lo pagado y lo pendiente (las vencidas en rojo), deuda vencida a hoy con punitorios y monto para cancelar hoy (`sp_estado_cuenta`), pagos, comisión del vendedor y cuenta corriente. **Plan de pagos en PDF** para el cliente.
 - **Anular** (solo sin pagos aplicados, con motivo): deja el saldo en cero y revierte la comisión del vendedor (`sp_anular_prestamo`).
@@ -248,6 +279,8 @@ Como en gestion_sindicato: el botón **Ayuda** flotante (abajo a la derecha) y l
 El repositorio se despliega en Railway con el `Dockerfile` de la raíz (Apache + PHP 8.3, `app\public` como raíz del sitio); Railway lo usa solo al ver el archivo. En IIS no interviene.
 
 - **Sin `config.php`**: en Railway la configuración sale de variables. Obligatorias: `FIN_DB_HOST`, `FIN_DB_PORT`, `FIN_DB_USER`, `FIN_DB_PASS` (y `FIN_DB_NAME` si la base no se llama `financiera`). Con el MySQL de Railway en el mismo proyecto: `FIN_DB_HOST=${{MySQL.MYSQLHOST}}`, `FIN_DB_PORT=${{MySQL.MYSQLPORT}}`. Opcionales: `FIN_DOCS_DIR` (por defecto `/data/documentos`), `FIN_SESION_DIR` (`/data/sesiones`), `FIN_DOCS_MAX_MB`, `FIN_SESION_MINUTOS`, `FIN_BCRA_CACHE_HORAS`, `FIN_DEBUG=1`.
+- **WhatsApp**: `FIN_WA_TOKEN`, el token de la API de WhatsApp Cloud (opcional).
+- **App en el celular**: por la dirección `https://` de Railway se puede instalar (PWA). Después de cada cambio de base hay que correr ahí los `sql\` nuevos.
 - **Volumen en `/data`**: la documentación de los clientes y las sesiones. Sin volumen se pierden en cada despliegue.
 - **La base**: la app de Railway no llega al MySQL de este servidor. Hay que restaurar `financiera` (con sus procedimientos: `mysqldump --routines --triggers`) en el MySQL de Railway, o apuntar las variables a una base que se pueda alcanzar desde internet.
 - La tarea de cotizaciones corre en este servidor y actualiza la base local; si la base viva pasa a ser la de Railway, la tarea tiene que apuntar a ella.

@@ -622,6 +622,91 @@ final class PdfReporte
         $this->y += 18;
     }
 
+    /** Parte un texto en renglones que entren en $ancho con la fuente puesta. */
+    private function partir(string $texto, float $ancho): array
+    {
+        $out = [];
+        foreach (preg_split('/\R/u', $texto) as $par) {
+            $linea = '';
+            foreach (preg_split('/\s+/u', trim($par), -1, PREG_SPLIT_NO_EMPTY) as $pal) {
+                $prueba = $linea === '' ? $pal : $linea . ' ' . $pal;
+                if ($linea !== '' && $this->pdf->anchoTexto($prueba) > $ancho) {
+                    $out[] = $linea;
+                    $linea = $pal;
+                } else {
+                    $linea = $prueba;
+                }
+            }
+            $out[] = $linea;
+        }
+        return $out;
+    }
+
+    /** Si no quedan $alto puntos en la hoja, sigue en la próxima (para no dejar un título solo al pie). */
+    public function reservar(float $alto): void
+    {
+        $this->lugar($alto);
+    }
+
+    /** Texto corrido, que baja de renglón solo (para instructivos y notas largas). */
+    public function parrafo(string $texto, float $tam = 9.5, ?string $color = null, bool $negrita = false): void
+    {
+        $p = $this->pdf;
+        $alto = $tam * 1.4;
+        $p->fuente($negrita, $tam);
+        foreach ($this->partir($texto, $this->anchoUtil()) as $l) {
+            if ($this->lugar($alto)) {
+                $p->fuente($negrita, $tam);
+            }
+            $p->texto($this->margen, $this->y + $tam, $l, $color ?? self::TEXTO);
+            $this->y += $alto;
+        }
+        $this->y += 4;
+    }
+
+    /**
+     * Lista. $marca: 'n' numera (1. 2. …), 'c' dibuja una casilla para tildar,
+     * '-' un guion. Cada ítem es un texto o [texto, aclaración en letra chica].
+     * Un ítem no se corta entre dos páginas.
+     */
+    public function lista(array $items, string $marca = '-', float $tam = 9.5): void
+    {
+        $p = $this->pdf;
+        $alto = $tam * 1.4;
+        $tamNota = $tam - 1.5;
+        $sang = 18;
+        $ancho = $this->anchoUtil() - $sang;
+        $n = 0;
+        foreach ($items as $it) {
+            [$txt, $nota] = is_array($it) ? [(string) $it[0], (string) ($it[1] ?? '')] : [(string) $it, ''];
+            $n++;
+            $p->fuente(false, $tam);
+            $lineas = $this->partir($txt, $ancho);
+            $p->fuente(false, $tamNota);
+            $notas = $nota !== '' ? $this->partir($nota, $ancho) : [];
+            $this->lugar($alto * count($lineas) + $tamNota * 1.4 * count($notas) + 3);
+            $x = $this->margen;
+            if ($marca === 'c') {
+                $p->rect($x + 2, $this->y + 2.5, $tam - 2, $tam - 2, null, self::TENUE, 0.8);
+            } else {
+                $p->fuente(true, $tam);
+                $p->texto($x + ($marca === 'n' ? 0 : 4), $this->y + $tam, $marca === 'n' ? $n . '.' : '-', self::AZUL);
+            }
+            $p->fuente(false, $tam);
+            foreach ($lineas as $l) {
+                $p->texto($x + $sang, $this->y + $tam, $l, self::TEXTO);
+                $this->y += $alto;
+            }
+            $p->fuente(false, $tamNota);
+            foreach ($notas as $l) {
+                $p->texto($x + $sang, $this->y + $tamNota, $l, self::TENUE);
+                $this->y += $tamNota * 1.4;
+            }
+            $this->y += 3;
+        }
+        $this->y += 4;
+    }
+
     public function nota(string $texto): void
     {
         $this->lugar(14);
