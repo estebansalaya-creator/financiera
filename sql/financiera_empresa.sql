@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS empresa (
     -- Android (512, con más margen). Vacíos: el ícono estándar.
     app_icono_usar      TINYINT(1)   NOT NULL DEFAULT 1,
     app_icono_fondo     CHAR(6)      NOT NULL DEFAULT 'ffffff', -- RGB en hexa, sin numeral
+    app_icono_desde     TINYINT UNSIGNED NOT NULL DEFAULT 0,    -- franja del logo que va al ícono: desde este % del ancho…
+    app_icono_hasta     TINYINT UNSIGNED NOT NULL DEFAULT 100,  -- …hasta este (0 y 100 = el logo entero)
     app_icono_32        MEDIUMBLOB   NULL,
     app_icono_180       MEDIUMBLOB   NULL,
     app_icono_192       MEDIUMBLOB   NULL,
@@ -72,6 +74,14 @@ CREATE TABLE IF NOT EXISTS empresa (
     PRIMARY KEY (id_empresa),
     CONSTRAINT chk_empresa_unica CHECK (id_empresa = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Instalaciones anteriores: agrega las columnas que falten
+SET @falta := (SELECT COUNT(*) = 0 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'empresa' AND COLUMN_NAME = 'app_icono_desde');
+SET @ddl := IF(@falta, 'ALTER TABLE empresa ADD COLUMN app_icono_desde TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER app_icono_fondo, ADD COLUMN app_icono_hasta TINYINT UNSIGNED NOT NULL DEFAULT 100 AFTER app_icono_desde', 'SELECT 1');
+PREPARE st FROM @ddl;
+EXECUTE st;
+DEALLOCATE PREPARE st;
 
 INSERT IGNORE INTO empresa (id_empresa, razon_social) VALUES (1, 'Financiera');
 

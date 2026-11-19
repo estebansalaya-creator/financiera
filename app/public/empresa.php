@@ -128,6 +128,8 @@ if (es_post() && $e['existe']) {
     }
     $v['app_icono_usar'] = $iconoUsar;
     $v['app_icono_fondo'] = $iconoFondo;
+    $iconoDesde = max(0, min(95, (int) post_str('app_icono_desde')));
+    $iconoHasta = max($iconoDesde + 5, min(100, (int) (post_str('app_icono_hasta') === '' ? 100 : post_str('app_icono_hasta'))));
     $iconos = null;
     if ($iconoUsar && $logo !== false) {
         $iconos = [];
@@ -161,6 +163,11 @@ if (es_post() && $e['existe']) {
                           app_icono_actualizado_el=NOW() WHERE id_empresa = 1');
             }
             q('UPDATE empresa SET app_icono_usar=?, app_icono_fondo=? WHERE id_empresa = 1', [$iconoUsar, $iconoFondo]);
+            try {
+                q('UPDATE empresa SET app_icono_desde=?, app_icono_hasta=? WHERE id_empresa = 1', [$iconoDesde, $iconoHasta]);
+            } catch (Throwable $ex) {
+                // base sin esas columnas (falta volver a correr sql\financiera_empresa.sql): el ícono sale igual, no se recuerda el recorte
+            }
             if ($iconos) {
                 $cols = array_keys($iconos);
                 q('UPDATE empresa SET ' . implode('=?, ', $cols) . '=?, app_icono_actualizado_el=NOW() WHERE id_empresa = 1',
@@ -184,6 +191,19 @@ function campo_txt(array $v, string $c, int $span, string $extra = '', string $a
 }
 
 $logoUrl = empresa_logo_url();
+// Qué franja del logo va al ícono (columnas nuevas: si faltan, el logo entero)
+if (!isset($iconoDesde)) {
+    $iconoDesde = 0;
+    $iconoHasta = 100;
+    try {
+        $r = q1('SELECT app_icono_desde, app_icono_hasta FROM empresa WHERE id_empresa = 1');
+        if ($r) {
+            $iconoDesde = max(0, min(95, (int) $r['app_icono_desde']));
+            $iconoHasta = max($iconoDesde + 5, min(100, (int) $r['app_icono_hasta']));
+        }
+    } catch (Throwable $ex) {
+    }
+}
 $tokenOk = (string) cfg('whatsapp_token', '') !== '';
 $waNum = (string) ($v['whatsapp_numero'] ?? '');
 $waNorm = $waNum !== '' ? (whatsapp_normalizar($waNum) ?? '') : '';
@@ -301,8 +321,8 @@ mensajes($errores);
         <div class="bloque-titulo">Ícono de la app</div>
         <div class="icono-app">
           <div class="icono-app-muestras" id="icono-muestras">
-            <figure><img id="icono-prev-any" src="<?= h(app_icono_url('192')) ?>" alt="" width="64" height="64"><figcaption>iPhone / PC</figcaption></figure>
-            <figure><img id="icono-prev-mask" class="redondo" src="<?= h(app_icono_url('mask')) ?>" alt="" width="64" height="64"><figcaption>Android</figcaption></figure>
+            <figure><img id="icono-prev-any" src="<?= h(app_icono_url('192')) ?>" alt="" width="96" height="96"><figcaption>iPhone / PC</figcaption></figure>
+            <figure><img id="icono-prev-mask" class="redondo" src="<?= h(app_icono_url('mask')) ?>" alt="" width="96" height="96"><figcaption>Android</figcaption></figure>
           </div>
           <div class="campos">
             <div class="campo" style="--span:12"><label class="campo-check">
@@ -314,7 +334,12 @@ mensajes($errores);
                 <button type="button" class="btn btn-ghost btn-sm" data-fondo="#ffffff">Blanco</button>
                 <button type="button" class="btn btn-ghost btn-sm" data-fondo="#1c5a8f">Azul</button>
               </div>
-              <small class="campo-ayuda">Es el ícono del celular y de la pestaña del navegador. Sin logo, queda el estándar. En un iPhone que ya la tenga instalada, el ícono nuevo aparece al volver a agregarla a la pantalla de inicio.</small></div>
+            </div>
+            <div class="campo" style="--span:12"><label for="app_icono_desde">Recorte del logo <span id="app_icono_rec_txt" class="icono-app-valor"></span></label>
+              <div class="icono-app-rango"><span>Desde</span><input type="range" id="app_icono_desde" name="app_icono_desde" min="0" max="95" step="1" value="<?= (int) $iconoDesde ?>"></div>
+              <div class="icono-app-rango"><span>Hasta</span><input type="range" id="app_icono_hasta" name="app_icono_hasta" min="5" max="100" step="1" value="<?= (int) $iconoHasta ?>"></div>
+              <div><button type="button" class="btn btn-ghost btn-sm" id="icono-reset">Logo entero</button></div>
+              <small class="campo-ayuda">Al logo se le saca solo el blanco de alrededor. Si entero se ve chico (un logo apaisado), mové «Desde» y «Hasta» para quedarte con una parte, por ejemplo solo el isotipo: se muestra entera y centrada. Es el ícono del celular y de la pestaña del navegador. Sin logo, queda el estándar. En un iPhone que ya la tenga instalada, el ícono nuevo aparece al volver a agregarla a la pantalla de inicio.</small></div>
           </div>
         </div>
         <?php foreach (ICONOS_APP as $t => $_): ?><input type="hidden" name="icono_<?= h($t) ?>" id="icono_<?= h($t) ?>" value=""><?php endforeach; ?>
@@ -332,19 +357,64 @@ mensajes($errores);
 // el navegador dibuja el logo en cuadrados de 32, 180, 192 y 512 px y en el
 // «maskable» de Android (con más margen, porque Android lo recorta en círculo
 // o en gota). Los PNG viajan en campos ocultos al guardar.
+//   - Antes de dibujar se le recorta al logo el blanco (o la transparencia)
+//     que tenga alrededor, para que ocupe todo el ícono.
+//   - Recorte: «desde» y «hasta» eligen qué franja del logo (de izquierda a
+//     derecha) va al ícono; esa parte se muestra entera y centrada. Sirve
+//     para dejar solo el isotipo de un logo apaisado, que entero se ve chico.
 (function () {
   var input = document.getElementById('logo');
   var usar = document.getElementById('app_icono_usar');
   var fondo = document.getElementById('app_icono_fondo');
+  var desde = document.getElementById('app_icono_desde');
+  var hasta = document.getElementById('app_icono_hasta');
+  var recTxt = document.getElementById('app_icono_rec_txt');
   var quitar = document.querySelector('input[name=quitar_logo]');
-  var LADOS = { '32': [32, 0.06], '180': [180, 0.12], '192': [192, 0.10], '512': [512, 0.10], 'mask': [512, 0.20] };
+  var LADOS = { '32': [32, 0.04], '180': [180, 0.07], '192': [192, 0.06], '512': [512, 0.06], 'mask': [512, 0.14] };
   var ESTANDAR = { any: 'assets/iconos/icono-192.png', mask: 'assets/iconos/icono-maskable-512.png' };
-  var imgLogo = null;
+  var imgLogo = null, caja = null, pendiente = null;
   <?php if ($logoUrl): ?>
-  imgLogo = new Image();
-  imgLogo.onload = armar;
-  imgLogo.src = <?= json_encode($logoUrl) ?>;
+  cargar(<?= json_encode($logoUrl) ?>);
   <?php endif; ?>
+
+  function cargar(url) {
+    imgLogo = new Image();
+    imgLogo.onload = function () { caja = recorte(imgLogo); armar(); };
+    imgLogo.src = url;
+  }
+
+  // La parte del logo que tiene dibujo: sin el borde del color de la esquina (o transparente).
+  function recorte(img) {
+    var W = img.naturalWidth, H = img.naturalHeight, todo = { x: 0, y: 0, w: W, h: H };
+    try {
+      var f = Math.min(1, 600 / Math.max(W, H)), w = Math.max(1, Math.round(W * f)), h = Math.max(1, Math.round(H * f));
+      var c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      var g = c.getContext('2d');
+      g.drawImage(img, 0, 0, w, h);
+      var d = g.getImageData(0, 0, w, h).data;
+      var r0 = d[0], g0 = d[1], b0 = d[2], a0 = d[3];
+      var x1 = w, y1 = h, x2 = -1, y2 = -1;
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          var i = (y * w + x) * 4, a = d[i + 3];
+          var dibujo = a0 < 16 ? a > 24
+                     : a > 24 && (Math.abs(d[i] - r0) + Math.abs(d[i + 1] - g0) + Math.abs(d[i + 2] - b0)) > 36;
+          if (dibujo) {
+            if (x < x1) x1 = x;
+            if (x > x2) x2 = x;
+            if (y < y1) y1 = y;
+            if (y > y2) y2 = y;
+          }
+        }
+      }
+      if (x2 < x1 || y2 < y1) return todo;
+      return { x: Math.max(0, (x1 - 1) / f), y: Math.max(0, (y1 - 1) / f),
+               w: Math.min(W, (x2 - x1 + 3) / f), h: Math.min(H, (y2 - y1 + 3) / f) };
+    } catch (e) {
+      return todo;
+    }
+  }
 
   function dibujar(lado, margen) {
     var c = document.createElement('canvas');
@@ -352,11 +422,14 @@ mensajes($errores);
     var g = c.getContext('2d');
     g.fillStyle = fondo.value || '#ffffff';
     g.fillRect(0, 0, lado, lado);
+    var b = caja || { x: 0, y: 0, w: imgLogo.naturalWidth, h: imgLogo.naturalHeight };
+    var d = (parseInt(desde.value, 10) || 0) / 100, h100 = (parseInt(hasta.value, 10) || 100) / 100;
+    var sx = b.x + b.w * d, sw = Math.max(1, b.w * (h100 - d));          // la franja elegida
     var util = lado * (1 - 2 * margen);
-    var esc = Math.min(util / imgLogo.naturalWidth, util / imgLogo.naturalHeight);
-    var w = imgLogo.naturalWidth * esc, h = imgLogo.naturalHeight * esc;
+    var esc = Math.min(util / sw, util / b.h);
+    var w = sw * esc, h = b.h * esc;
     g.imageSmoothingQuality = 'high';
-    g.drawImage(imgLogo, (lado - w) / 2, (lado - h) / 2, w, h);
+    g.drawImage(imgLogo, sx, b.y, sw, b.h, (lado - w) / 2, (lado - h) / 2, w, h);
     return c.toDataURL('image/png');
   }
 
@@ -367,30 +440,50 @@ mensajes($errores);
     });
     document.getElementById('icono-prev-any').src = activo ? document.getElementById('icono_192').value : ESTANDAR.any;
     document.getElementById('icono-prev-mask').src = activo ? document.getElementById('icono_mask').value : ESTANDAR.mask;
+    rotulo();
+  }
+  function rotulo() {
+    var entero = desde.value === '0' && hasta.value === '100';
+    recTxt.textContent = entero ? 'el logo entero' : 'del ' + desde.value + ' % al ' + hasta.value + ' % del ancho';
+  }
+  function armarPronto(e) {
+    // «hasta» siempre a la derecha de «desde»
+    if (parseInt(hasta.value, 10) - parseInt(desde.value, 10) < 5) {
+      if (e && e.target === desde) hasta.value = Math.min(100, parseInt(desde.value, 10) + 5);
+      else desde.value = Math.max(0, parseInt(hasta.value, 10) - 5);
+      if (parseInt(hasta.value, 10) - parseInt(desde.value, 10) < 5) desde.value = parseInt(hasta.value, 10) - 5;
+    }
+    rotulo();
+    clearTimeout(pendiente);
+    pendiente = setTimeout(armar, 60);
   }
 
   input.addEventListener('change', function () {
     var f = this.files && this.files[0];
     if (!f || !/^image\/(png|jpeg)$/.test(f.type)) return;
     var url = URL.createObjectURL(f);
-    document.querySelectorAll('.logo-muestra-clara, .logo-muestra-oscura .header-logo').forEach(function (caja) {
-      var img = caja.querySelector('img');
+    document.querySelectorAll('.logo-muestra-clara, .logo-muestra-oscura .header-logo').forEach(function (cj) {
+      var img = cj.querySelector('img');
       if (!img) {
-        caja.querySelectorAll('span:not(.header-logo), svg').forEach(function (x) { x.remove(); });
+        cj.querySelectorAll('span:not(.header-logo), svg').forEach(function (x) { x.remove(); });
         img = document.createElement('img');
-        caja.insertBefore(img, caja.firstChild);
+        cj.insertBefore(img, cj.firstChild);
       }
       img.src = url;
-      caja.classList.add('con-logo');
+      cj.classList.add('con-logo');
     });
-    imgLogo = new Image();
-    imgLogo.onload = armar;
-    imgLogo.src = url;
+    desde.value = 0;
+    hasta.value = 100;
+    cargar(url);
   });
-  [usar, fondo, quitar].forEach(function (el) { if (el) el.addEventListener('input', armar); if (el) el.addEventListener('change', armar); });
+  [usar, fondo, quitar].forEach(function (el) {
+    if (el) { el.addEventListener('input', armar); el.addEventListener('change', armar); }
+  });
+  [desde, hasta].forEach(function (el) { el.addEventListener('input', armarPronto); el.addEventListener('change', armar); });
   document.querySelectorAll('[data-fondo]').forEach(function (b) {
     b.addEventListener('click', function () { fondo.value = b.getAttribute('data-fondo'); armar(); });
   });
+  document.getElementById('icono-reset').addEventListener('click', function () { desde.value = 0; hasta.value = 100; armar(); });
   armar();
 })();
 </script>

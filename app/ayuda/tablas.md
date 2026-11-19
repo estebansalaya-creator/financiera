@@ -17,7 +17,7 @@ PNG (mejor con fondo transparente) o JPG, hasta 1 MB y 2000 px por lado. Rinde m
 
 ### Ícono de la app
 
-Con **Usar el logo como ícono de la app** tildado, el logo es también el ícono de la aplicación instalada en el celular y el de la pestaña del navegador. Se ve cómo queda en iPhone/PC (cuadrado) y en Android (redondo), y se puede elegir el color de fondo. Sin logo, o destildado, queda el ícono estándar. Un celular que ya la tenía instalada toma el ícono nuevo solo en Android (puede tardar un día); en iPhone hay que volver a agregarla a la pantalla de inicio.
+Con **Usar el logo como ícono de la app** tildado, el logo es también el ícono de la aplicación instalada en el celular y el de la pestaña del navegador. Se ve cómo queda en iPhone/PC (cuadrado) y en Android (redondo), y se puede elegir el color de fondo. Al logo se le saca solo el blanco que tenga alrededor. Si entero se ve chico (pasa con los logos apaisados), con **Recorte** se elige qué parte usar: «Desde» y «Hasta» marcan la franja, de izquierda a derecha, y esa parte se muestra entera y centrada (por ejemplo, solo el isotipo). **Logo entero** vuelve a usarlo completo. Sin logo, o destildado, queda el ícono estándar. Un celular que ya la tenía instalada toma el ícono nuevo solo en Android (puede tardar un día); en iPhone hay que volver a agregarla a la pantalla de inicio.
 
 ### WhatsApp Business
 

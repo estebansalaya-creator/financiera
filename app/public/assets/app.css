@@ -816,3 +816,10 @@ select.celda-input.doc-obligatoria { font-weight: 700; color: var(--danger-texto
 .td-nowrap { white-space: nowrap; }
 a.bcra-tarjeta { color: inherit; }
 a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
+
+/* Ícono de la app: muestras más grandes y recorte del logo (Desde / Hasta) */
+.icono-app-muestras img { width: 96px; height: 96px; border-radius: 22px; }
+.icono-app-valor { font-weight: 400; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
+.icono-app input[type=range] { width: 100%; padding: 0 !important; border: 0 !important; background: none !important; box-shadow: none !important; accent-color: var(--blue); }
+.icono-app-rango { display: flex; align-items: center; gap: 8px; font-size: .76rem; color: var(--text-muted); }
+.icono-app-rango span { width: 40px; flex: none; }
