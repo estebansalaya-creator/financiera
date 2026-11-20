@@ -22,6 +22,7 @@ A la izquierda están tus conversaciones, la más reciente arriba. Las que tiene
 
 **Otras cosas**
 
+- **Cerrar**: la **X** de arriba de la lista cierra Mensajes y te devuelve a la pantalla donde estabas. La **X** de la conversación (o **Esc**) cierra solo esa conversación; en el celular, la flecha **←** vuelve a la lista.
 - **Silenciar**: la conversación sigue llegando, pero no suma al número rojo del globito.
 - **Eliminar** (al pasar el mouse sobre un mensaje tuyo): los demás ven *Mensaje eliminado* y el archivo deja de estar disponible.
 - En las conversaciones de a dos, **✓✓** indica que la otra persona ya lo leyó.

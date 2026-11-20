@@ -888,6 +888,8 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
 .chat-cab-txt small { color: var(--text-muted); font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-cab-acc { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .chat-volver { display: none; }
+.chat-cerrar { --c: var(--text-muted); --c-borde: var(--border); flex-shrink: 0; }
+.chat-cerrar:hover { --c: var(--danger); --c-borde: var(--danger-borde); }
 .chat-zona { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
 .chat-msjs { flex: 1; overflow-y: auto; padding: 14px 18px; background: var(--bg); display: flex; flex-direction: column; }
@@ -969,6 +971,7 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
   .chat-lado { border-right: 0; }
   .chat.con-conversacion .chat-lado, .chat:not(.con-conversacion) .chat-sin { display: none; }
   .chat-volver { display: inline-flex; }
+  .chat-cerrar-conv { display: none; }       /* en el celular cierra la flecha ← */
   .chat-msj { max-width: 86%; }
   .chat-fila textarea { font-size: 16px; }   /* 16px: iPhone no hace zoom */
   .chat-enviar span { display: none; }

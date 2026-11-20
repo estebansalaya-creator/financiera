@@ -474,6 +474,13 @@
       if (!window.confirm('¿Salir del grupo «' + info.titulo + '»? Para volver te tiene que agregar quien lo administra.')) return;
       pedir(null, { accion: 'salir', conv: info.id }).then(function () { cerrarPanel(); cargarLista(); }).catch(function (e) { alert(e.message); });
     }));
+    var x = el('button', 'btn-accion chat-cerrar chat-cerrar-conv');
+    x.type = 'button';
+    x.title = 'Cerrar la conversación (Esc)';
+    x.setAttribute('aria-label', 'Cerrar la conversación');
+    x.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+    x.addEventListener('click', function () { cerrarPanel(); });
+    acc.appendChild(x);
     cab.appendChild(acc);
   }
 
@@ -658,6 +665,15 @@
       });
     }).catch(function (e) { alert(e.message); });
   }
+
+  // Escape: cierra la conversación abierta; sin conversación, sale de Mensajes.
+  // (Con un diálogo abierto, Escape cierra solo el diálogo.)
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('dialog[open]')) return;
+    if (hilo) { if (!hilo.txt.value.trim()) cerrarPanel(); return; }   // con algo escrito no se pierde
+    var salir = app.querySelector('[data-chat-salir]');
+    if (salir && document.activeElement !== buscar) location.href = salir.getAttribute('href');
+  });
 
   app.querySelector('[data-nuevo]').addEventListener('click', dlgNuevo);
   app.querySelector('[data-nuevo-grupo]').addEventListener('click', dlgGrupo);

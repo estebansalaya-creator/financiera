@@ -71,7 +71,10 @@ function chat_boton_flotante(): string
     } catch (Throwable $e) {
         return '';
     }
-    return '<a id="btn-mensajes" href="chat.php" data-chat-contador="' . $n . '" title="Mensajes">'
+    // Mensajes vuelve a esta pantalla al cerrarlo.
+    $aca = basename((string) ($_SERVER['REQUEST_URI'] ?? ''));
+    $href = 'chat.php' . ($aca !== '' && url_local($aca) && strpos($aca, 'index.php') !== 0 ? '?volver=' . rawurlencode($aca) : '');
+    return '<a id="btn-mensajes" href="' . h($href) . '" data-chat-contador="' . $n . '" title="Mensajes">'
          . icono('mensaje') . '<span>Mensajes</span>'
          . '<span class="chat-badge"' . ($n ? '' : ' hidden') . '>' . ($n > 99 ? '99+' : $n) . '</span></a>';
 }

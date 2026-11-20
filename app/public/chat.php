@@ -11,7 +11,13 @@ require __DIR__ . '/../inc/chat.php';
 // chat_api.php; esta página solo dibuja el marco.
 //   chat.php?c=N      abre esa conversación
 //   chat.php?para=N   abre (o empieza) la conversación con ese usuario
+//   &volver=pantalla  adónde lleva Cerrar (la pone el globito flotante)
 // ---------------------------------------------------------------------
+
+$volver = get_str('volver');
+if (!url_local($volver) || stripos($volver, 'chat') === 0) {
+    $volver = 'index.php';
+}
 
 $error = null;
 try {
@@ -35,6 +41,7 @@ if ($error) {
       <div class="chat-lado-acc">
         <?= boton('Nuevo mensaje', 'primary', null, 'agregar', false, true, ['data-nuevo' => true]) ?>
         <?= boton('Grupo', 'ghost', null, 'grupo', false, true, ['data-nuevo-grupo' => true, 'title' => 'Armar un grupo']) ?>
+        <a class="btn-accion chat-cerrar" href="<?= h($volver) ?>" data-chat-salir title="Cerrar Mensajes y volver" aria-label="Cerrar Mensajes y volver"><?= icono('cerrar') ?></a>
       </div>
     </div>
     <div class="menu-buscar chat-buscar">
