@@ -64,17 +64,18 @@ function chat_boton_flotante(): string
         return '';
     }
     try {
-        $r = q1("SELECT COUNT(*) AS n FROM chat_participantes p
+        $r = q1("SELECT COUNT(*) AS n, COALESCE(MAX(c.ultimo_mensaje_id), 0) AS ultimo FROM chat_participantes p
                    JOIN chat_conversaciones c ON c.id_conversacion = p.id_conversacion
                   WHERE p.id_usuario = ? AND p.silenciada = 0 AND c.ultimo_mensaje_id > p.ultimo_leido", [usuario_id()]);
         $n = (int) $r['n'];
+        $ultimo = (int) $r['ultimo'];
     } catch (Throwable $e) {
         return '';
     }
     // Mensajes vuelve a esta pantalla al cerrarlo.
     $aca = basename((string) ($_SERVER['REQUEST_URI'] ?? ''));
     $href = 'chat.php' . ($aca !== '' && url_local($aca) && strpos($aca, 'index.php') !== 0 ? '?volver=' . rawurlencode($aca) : '');
-    return '<a id="btn-mensajes" href="' . h($href) . '" data-chat-contador="' . $n . '" title="Mensajes">'
+    return '<a id="btn-mensajes" href="' . h($href) . '" data-chat-contador="' . $n . '" data-chat-ultimo="' . $ultimo . '" title="Mensajes">'
          . icono('mensaje') . '<span>Mensajes</span>'
          . '<span class="chat-badge"' . ($n ? '' : ' hidden') . '>' . ($n > 99 ? '99+' : $n) . '</span></a>';
 }
@@ -127,7 +128,7 @@ function layout_inicio(string $titulo, string $activo = ''): void
   <button type="button" class="header-boton" data-instalar-app hidden title="Instalar la Financiera como app en este dispositivo"><?= icono('telefono', 14) ?><span class="hb-texto">Instalar app</span></button>
   <span class="header-fecha"><?= h(ucfirst($hoy)) ?></span>
   <?php if ($u): ?>
-  <a href="mi_clave.php" class="header-user" title="<?= h($u['email'] . ($u['roles'] ? ' · ' . implode(', ', $u['roles']) : '')) ?> · Cambiar mi contraseña">
+  <a href="mi_clave.php" class="header-user" title="<?= h($u['email'] . ($u['roles'] ? ' · ' . implode(', ', $u['roles']) : '')) ?> · Mis datos y contraseña">
     <?= icono('usuario', 16) ?><span class="hb-texto"><?= h($u['nombre']) ?></span>
   </a>
   <a href="logout.php" class="header-boton" title="Salir"><?= icono('salir', 14) ?><span class="hb-texto">Salir</span></a>

@@ -853,7 +853,8 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
 .chat-lado { display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; background: var(--surface); }
 .chat-lado-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 14px 10px; }
 .chat-lado-head strong { color: var(--navy); font-size: .95rem; }
-.chat-lado-acc { display: flex; gap: 6px; }
+.chat-lado-head { flex-wrap: wrap; }
+.chat-lado-acc { display: flex; gap: 6px; align-items: center; margin-left: auto; }
 .chat-buscar { margin: 0 12px 8px; }
 .chat-convs { list-style: none; margin: 0; padding: 0 6px 8px; overflow-y: auto; flex: 1; }
 .chat-conv {
@@ -888,6 +889,8 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
 .chat-cab-txt small { color: var(--text-muted); font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-cab-acc { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .chat-volver { display: none; }
+.chat-sonido { font-size: .85rem; font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', var(--font); }
+.chat-sonido[aria-pressed="false"] { opacity: .6; }
 .chat-cerrar { --c: var(--text-muted); --c-borde: var(--border); flex-shrink: 0; }
 .chat-cerrar:hover { --c: var(--danger); --c-borde: var(--danger-borde); }
 .chat-zona { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -956,6 +959,39 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
 .chat-emojis-grilla button { border: 0; background: none; border-radius: var(--radius-sm); font-size: 1.35rem; line-height: 1; padding: 6px 0; cursor: pointer; }
 .chat-emojis-grilla button:hover, .chat-emojis-grilla button:focus-visible { background: var(--blue-light); outline: none; }
 .chat-texto.solo-emoji { font-size: 2.1rem; line-height: 1.2; }
+
+/* Llamadas: botones de la cabecera y mensaje de videollamada */
+.chat-cab-btn { gap: 5px; }
+.chat-cab-ico { font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', var(--font); font-size: .9rem; line-height: 1; }
+.chat-wa { color: var(--ok-texto); border-color: var(--ok-borde); }
+.chat-wa:hover { background: var(--ok-bg); }
+.chat-llamada { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 2px 0 4px; min-width: 200px; }
+.chat-llamada-tit { font-weight: 700; color: var(--navy); font-size: .88rem; }
+.chat-llamada-txt { font-size: .8rem; color: var(--text-muted); }
+.chat-llamada .btn { margin-top: 4px; }
+.chat-int-tel { display: inline-flex; gap: 8px; margin-left: auto; margin-right: 8px; font-size: .78rem; white-space: nowrap; }
+@media (max-width: 900px) {
+  .chat-cab-btn-txt { display: none; }
+  .chat-cab-btn { padding: 5px 8px; }
+  .chat-cab-acc { flex-wrap: nowrap; gap: 4px; }
+}
+
+/* Mensajes de voz: grabación y reproductor */
+.chat-mic { padding: 8px 10px; border-radius: 50%; border-color: var(--border); }
+.chat-mic[hidden] { display: none; }
+.chat-form.grabando .chat-fila, .chat-form.grabando .chat-archivo { display: none; }
+.chat-grabando { display: flex; align-items: center; gap: 10px; min-height: 38px; }
+.chat-grabando[hidden] { display: none; }
+.chat-grab-punto { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: chat-parpadeo 1s infinite; }
+@keyframes chat-parpadeo { 50% { opacity: .25; } }
+.chat-grab-tiempo { font-family: var(--mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+.chat-grab-txt { flex: 1; color: var(--text-muted); font-size: .8rem; }
+.chat-grab-cancelar { border-color: var(--danger-borde); color: var(--danger-texto); }
+.chat-grab-cancelar:hover { background: var(--danger-bg); }
+.chat-audio { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 2px; }
+.chat-audio audio { width: 280px; max-width: 100%; height: 40px; }
+.chat-audio-pie { display: flex; justify-content: space-between; gap: 10px; font-size: .7rem; color: var(--text-muted); }
+@media (max-width: 900px) { .chat-audio audio { width: 230px; } }
 @media (max-width: 900px) {
   .chat-emojis { left: 8px; right: 8px; width: auto; max-width: none; }
   .chat-emoji-btn { display: none; }        /* en el celular, los del teclado */

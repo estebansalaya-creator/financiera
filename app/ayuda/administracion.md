@@ -27,6 +27,8 @@ Usuarios, roles, permisos y menú, y lo que necesita saber quien mantiene el sis
 2. Tildá sus **roles**.
 3. **Guardar**.
 
+**Celular**: con él, en *Mensajes* aparecen **Llamar** y **WhatsApp** en la conversación con esa persona. Cada uno lo puede cargar también en *Mis datos* (click en su nombre, arriba a la derecha). Si un vendedor no lo tiene cargado, se usa el teléfono de su ficha de vendedor.
+
 Para cambiarle la contraseña a alguien, editalo y escribí una nueva (vacía = no se cambia). La llave de la lista desbloquea a quien se pasó de intentos.
 
 Quien ya operó (creó clientes, liquidó, cobró…) no se elimina: se **da de baja**, y lo que hizo sigue a su nombre. Nadie se puede dar de baja a sí mismo ni sacarse el rol Administrador, y siempre tiene que quedar al menos un administrador activo.

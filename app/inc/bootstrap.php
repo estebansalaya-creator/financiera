@@ -29,6 +29,7 @@ if (is_file($cfgFile)) {
         'sesion_dir' => $env('FIN_SESION_DIR', '/data/sesiones'),
         'debug' => $env('FIN_DEBUG', '0') === '1',
         'whatsapp_token' => $env('FIN_WA_TOKEN', ''),
+        'video_url' => $env('FIN_VIDEO_URL', 'https://meet.jit.si/'),
     ];
     unset($env);
 } else {
@@ -72,6 +73,27 @@ function q(string $sql, array $params = []): array
     $st = db()->prepare($sql);
     $st->execute($params);
     return $st->fetchAll();
+}
+
+/**
+ * ¿Ya está esa columna? Para que una pantalla siga andando entre que se
+ * sube el código y se corre el .sql que la agrega. Una consulta por
+ * columna y pedido.
+ */
+function columna_existe(string $tabla, string $columna): bool
+{
+    static $cache = [];
+    $k = $tabla . '.' . $columna;
+    if (!isset($cache[$k])) {
+        try {
+            $st = db()->prepare('SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?');
+            $st->execute([$tabla, $columna]);
+            $cache[$k] = (bool) $st->fetchColumn();
+        } catch (Throwable $e) {
+            $cache[$k] = false;
+        }
+    }
+    return $cache[$k];
 }
 
 /** Primera fila o null. */

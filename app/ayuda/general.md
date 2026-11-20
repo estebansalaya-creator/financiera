@@ -14,7 +14,7 @@ El backoffice se usa desde el navegador, en la red interna. Cada persona entra c
 
 - Con 5 contraseñas equivocadas seguidas, el usuario queda bloqueado 15 minutos. Un administrador lo puede desbloquear antes.
 - La sesión se cierra sola después de 8 horas sin uso.
-- Para cambiar tu contraseña, hacé click en tu nombre (arriba a la derecha): pide la actual y la nueva dos veces (al menos 8 caracteres).
+- Click en tu nombre (arriba a la derecha) abre **Mis datos**: ahí cargás tu **celular** (para que te llamen o te escriban por WhatsApp desde Mensajes) y cambiás tu contraseña (pide la actual y la nueva dos veces, al menos 8 caracteres).
 - **Salir** cierra la sesión. En una computadora compartida, salí siempre.
 
 Si abrís una pantalla que no tenés, el sistema te lleva a tu menú con el aviso *No tenés permiso para esa pantalla*.

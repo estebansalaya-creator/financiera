@@ -33,6 +33,12 @@ return [
     // token va acá (en Railway: variable FIN_WA_TOKEN) porque es una clave.
     'whatsapp_token' => '',
 
+    // Videollamadas de Mensajes: servidor Jitsi donde se arma la sala (con la
+    // barra al final). En meet.jit.si quien abre la sala se identifica con
+    // Google, GitHub o Facebook; los demás entran sin cuenta. Si tienen un
+    // Jitsi propio, va acá (en Railway: variable FIN_VIDEO_URL).
+    'video_url' => 'https://meet.jit.si/',
+
     // true solo en desarrollo: muestra el detalle de los errores de base en pantalla
     'debug'   => false,
 ];

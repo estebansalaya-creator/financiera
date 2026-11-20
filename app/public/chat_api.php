@@ -5,7 +5,8 @@ declare(strict_types=1);
 // API de Mensajes (JSON). La usan chat.php, el hilo de la ficha de la
 // solicitud y el contador del encabezado (assets/chat.js).
 //
-//   GET  ?accion=contador                       conversaciones con algo sin leer
+//   GET  ?accion=contador                       conversaciones con algo sin leer (y el
+//                                               id del mensaje sin leer más nuevo, para el sonido)
 //   GET  ?accion=lista                          conversaciones del usuario
 //   GET  ?accion=usuarios                       a quién se le puede escribir
 //   GET  ?accion=mensajes&conv=N                la última tanda
@@ -14,8 +15,10 @@ declare(strict_types=1);
 //        &solicitud=N (en vez de conv)          el hilo de esa solicitud
 //        &leer=1                                marca leído hasta lo devuelto
 //   POST accion=enviar   conv | para | solicitud, texto, archivo
+//                        voz=1, duracion=segundos: el archivo es un mensaje de voz
 //   POST accion=grupo    nombre, miembros[]                      crea un grupo
 //   POST accion=editar   conv, nombre, agregar[], quitar[]       edita un grupo
+//   POST accion=videollamada conv                                 arma una sala y la anuncia
 //   POST accion=salir    conv
 //   POST accion=silenciar conv, si (1|0)
 //   POST accion=retirar  mensaje
@@ -63,10 +66,10 @@ try {
     if (!es_post()) {
         switch ($accion) {
             case 'contador':
-                responder(['no_leidos' => chat_no_leidos()]);
+                responder(chat_no_leidos());
 
             case 'lista':
-                responder(['conversaciones' => chat_lista()]);
+                responder(['conversaciones' => chat_lista()] + chat_no_leidos());
 
             case 'usuarios':
                 if (!chat_habilitado()) {
@@ -96,6 +99,7 @@ try {
                         'silenciada' => $c['participante'] && (int) $c['participante']['silenciada'],
                         'participa' => (bool) $c['participante'],
                         'integrantes' => $c['tipo'] === 'DIRECTA' ? [] : chat_integrantes($id),
+                        'otro' => $c['tipo'] === 'DIRECTA' ? chat_el_otro($id) : null,
                         'hay_mas' => count($msjs) >= CHAT_PAGINA,
                     ];
                 }
@@ -130,7 +134,8 @@ try {
             if (count($archivos) > 1) {
                 throw new ChatError('Mandá los archivos de a uno.');
             }
-            $idMsj = chat_enviar($id, (string) ($_POST['texto'] ?? ''), $archivos[0] ?? null);
+            $voz = post_str('voz') === '1' ? (int) post_str('duracion') : null;
+            $idMsj = chat_enviar($id, (string) ($_POST['texto'] ?? ''), $archivos[0] ?? null, $voz);
             responder(['conv' => $id, 'mensaje' => $idMsj]);
 
         case 'abrir':                    // la directa con alguien, aunque no tenga mensajes todavía
@@ -143,6 +148,10 @@ try {
             $id = (int) post_str('conv');
             chat_grupo_editar($id, isset($_POST['nombre']) ? post_str('nombre') : null, post_ids('agregar'), post_ids('quitar'));
             responder(['conv' => $id]);
+
+        case 'videollamada':
+            [$idMsj, $sala] = chat_videollamada((int) post_str('conv'));
+            responder(['mensaje' => $idMsj, 'sala' => $sala]);
 
         case 'salir':
             chat_grupo_salir((int) post_str('conv'));
@@ -169,8 +178,10 @@ try {
 } catch (ChatError $e) {
     responder(['error' => $e->getMessage()], $e->http);
 } catch (PDOException $e) {
-    if ((int) ($e->errorInfo[1] ?? 0) === 1146) {
-        responder(['error' => 'Faltan las tablas de mensajes: corré sql\\financiera_chat.sql.'], 500);
+    $cod = (int) ($e->errorInfo[1] ?? 0);
+    if ($cod === 1146 || $cod === 1054) {
+        responder(['error' => $cod === 1146 ? 'Faltan las tablas de mensajes: corré sql\\financiera_chat.sql.'
+                                            : 'Falta actualizar la base de mensajes: volvé a correr sql\\financiera_chat.sql.'], 500);
     }
     responder(['error' => mensaje_bd($e)], 500);
 } catch (Throwable $e) {

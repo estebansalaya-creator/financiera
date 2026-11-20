@@ -22,11 +22,13 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/documentos.php';
 require_once __DIR__ . '/solicitudes.php';
+require_once __DIR__ . '/ui.php';
 
 const CHAT_TEXTO_MAX     = 4000;    // caracteres por mensaje
 const CHAT_GRUPO_NOMBRE  = 80;
 const CHAT_PAGINA        = 50;      // mensajes por tanda al abrir o al ir hacia atrás
 const CHAT_LISTA_MAX     = 200;     // conversaciones en la lista
+const CHAT_VOZ_MAX_SEG   = 300;     // un mensaje de voz dura hasta 5 minutos (chat.js corta solo)
 
 /**
  * Archivos que se pueden mandar: extensión => [mime, se muestra en el navegador].
@@ -34,6 +36,8 @@ const CHAT_LISTA_MAX     = 200;     // conversaciones en la lista
  * reconoce por el contenedor (ZIP para los nuevos, OLE para .doc / .xls) y la
  * extensión; texto, por la extensión y por no tener bytes binarios. Office y
  * texto siempre se descargan, nunca se abren dentro de la aplicación.
+ * Audio (los mensajes de voz y los audios que se reenvían): por el
+ * contenedor (WebM, Ogg, MP4/M4A, MP3); se escuchan en la conversación.
  */
 const CHAT_TIPOS_ARCHIVO = [
     'pdf'  => ['application/pdf', true],
@@ -46,6 +50,10 @@ const CHAT_TIPOS_ARCHIVO = [
     'doc'  => ['application/msword', false],
     'csv'  => ['text/csv', false],
     'txt'  => ['text/plain', false],
+    'webm' => ['audio/webm', true],
+    'ogg'  => ['audio/ogg', true],
+    'm4a'  => ['audio/mp4', true],
+    'mp3'  => ['audio/mpeg', true],
 ];
 
 /** ¿Usa directas y grupos? */
@@ -362,6 +370,20 @@ function chat_detectar_tipo(string $ruta, string $nombre): ?string
     if (in_array($declarada, ['csv', 'txt'], true) && strpos($b, "\0") === false) {
         return $declarada;
     }
+    // Audio
+    if (strncmp($b, "\x1A\x45\xDF\xA3", 4) === 0) {
+        return 'webm';                       // EBML: lo que graban Chrome, Edge y Firefox
+    }
+    if (strncmp($b, 'OggS', 4) === 0) {
+        return 'ogg';                        // también los .opus de WhatsApp
+    }
+    if (substr($b, 4, 4) === 'ftyp') {
+        return 'm4a';                        // lo que graba Safari (iPhone)
+    }
+    if (strncmp($b, 'ID3', 3) === 0
+        || ($declarada === 'mp3' && strlen($b) > 1 && ord($b[0]) === 0xFF && (ord($b[1]) & 0xE0) === 0xE0)) {
+        return 'mp3';
+    }
     return null;
 }
 
@@ -384,7 +406,7 @@ function chat_guardar_adjunto(int $idConv, array $a): array
     }
     $ext = chat_detectar_tipo($a['tmp_name'], $nombre);
     if ($ext === null) {
-        throw new ChatError($nombre . ': se pueden mandar PDF, imágenes (JPG, PNG, WEBP), Word, Excel, CSV o texto.');
+        throw new ChatError($nombre . ': se pueden mandar PDF, imágenes (JPG, PNG, WEBP), Word, Excel, CSV, texto o audio.');
     }
     $carpeta = docs_dir() . DIRECTORY_SEPARATOR . 'chat' . DIRECTORY_SEPARATOR . $idConv;
     if (!is_dir($carpeta) && !@mkdir($carpeta, 0770, true) && !is_dir($carpeta)) {
@@ -395,11 +417,16 @@ function chat_guardar_adjunto(int $idConv, array $a): array
     if (!@move_uploaded_file($a['tmp_name'], $dest)) {
         throw new ChatError($nombre . ': no se pudo guardar en ' . $carpeta . ' (permisos de la carpeta).', 500);
     }
-    return ['archivo' => $rel, 'ruta' => $dest, 'nombre' => $nombre, 'mime' => CHAT_TIPOS_ARCHIVO[$ext][0], 'bytes' => (int) $a['size']];
+    return ['archivo' => $rel, 'ruta' => $dest, 'nombre' => $nombre, 'mime' => CHAT_TIPOS_ARCHIVO[$ext][0], 'bytes' => (int) $a['size'],
+            'ext' => $ext];
 }
 
-/** Manda un mensaje (texto, adjunto o los dos) y devuelve su id. */
-function chat_enviar(int $idConv, string $texto, ?array $archivo): int
+/**
+ * Manda un mensaje (texto, adjunto o los dos) y devuelve su id. Con
+ * $duracionVoz es un mensaje de voz: el adjunto tiene que ser audio y se
+ * guarda como «Mensaje de voz» con su duración en segundos.
+ */
+function chat_enviar(int $idConv, string $texto, ?array $archivo, ?int $duracionVoz = null): int
 {
     $c = chat_conversacion_o_error($idConv);
     $texto = trim(str_replace("\r\n", "\n", $texto));
@@ -409,15 +436,32 @@ function chat_enviar(int $idConv, string $texto, ?array $archivo): int
     if (strlen($texto) > CHAT_TEXTO_MAX * 4 || (function_exists('mb_strlen') && mb_strlen($texto, 'UTF-8') > CHAT_TEXTO_MAX)) {
         throw new ChatError('El mensaje es muy largo (hasta ' . num(CHAT_TEXTO_MAX) . ' caracteres).');
     }
+    if ($duracionVoz !== null && $archivo === null) {
+        throw new ChatError('No llegó el audio. Probá grabarlo de nuevo.');
+    }
     $adj = $archivo !== null ? chat_guardar_adjunto($idConv, $archivo) : null;
+    if ($duracionVoz !== null) {
+        if (strpos($adj['mime'], 'audio/') !== 0) {
+            @unlink($adj['ruta']);
+            throw new ChatError('El mensaje de voz no llegó como audio. Probá grabarlo de nuevo.');
+        }
+        $adj['nombre'] = 'Mensaje de voz.' . $adj['ext'];
+        $adj['duracion'] = max(1, min(CHAT_VOZ_MAX_SEG + 5, $duracionVoz));
+    }
 
     $pdo = db();
     $pdo->beginTransaction();
     try {
-        q('INSERT INTO chat_mensajes (id_conversacion, id_usuario, texto, adjunto_archivo, adjunto_nombre, adjunto_mime, adjunto_bytes)
-           VALUES (?,?,?,?,?,?,?)',
-          [$idConv, usuario_id(), $texto !== '' ? $texto : null, $adj['archivo'] ?? null, $adj['nombre'] ?? null,
-           $adj['mime'] ?? null, $adj['bytes'] ?? null]);
+        // adjunto_duracion solo cuando hay: así el resto anda aunque falte
+        // correr la actualización de financiera_chat.sql.
+        $cols = 'id_conversacion, id_usuario, texto, adjunto_archivo, adjunto_nombre, adjunto_mime, adjunto_bytes';
+        $vals = [$idConv, usuario_id(), $texto !== '' ? $texto : null, $adj['archivo'] ?? null, $adj['nombre'] ?? null,
+                 $adj['mime'] ?? null, $adj['bytes'] ?? null];
+        if (isset($adj['duracion'])) {
+            $cols .= ', adjunto_duracion';
+            $vals[] = $adj['duracion'];
+        }
+        q("INSERT INTO chat_mensajes ($cols) VALUES (" . implode(',', array_fill(0, count($vals), '?')) . ')', $vals);
         $idMsj = (int) $pdo->lastInsertId();
         q('UPDATE chat_conversaciones SET ultimo_mensaje_id = ?, ultimo_mensaje_el = NOW() WHERE id_conversacion = ?', [$idMsj, $idConv]);
         if ($c['tipo'] === 'SOLICITUD') {
@@ -456,8 +500,7 @@ function chat_retirar(int $idMsj): void
  */
 function chat_mensajes(int $idConv, int $desde = 0, int $antes = 0): array
 {
-    $sel = 'SELECT m.id_mensaje, m.id_usuario, u.nombre AS autor, m.texto, m.adjunto_nombre, m.adjunto_mime,
-                   m.adjunto_bytes, m.creado_el, m.borrado_el
+    $sel = 'SELECT m.*, u.nombre AS autor
               FROM chat_mensajes m LEFT JOIN usuarios u ON u.id_usuario = m.id_usuario
              WHERE m.id_conversacion = ? ';
     if ($desde > 0) {
@@ -473,9 +516,13 @@ function chat_mensajes(int $idConv, int $desde = 0, int $antes = 0): array
         if (!$borrado && $m['adjunto_nombre'] !== null) {
             $adj = ['nombre' => $m['adjunto_nombre'], 'peso' => bytes_txt((int) $m['adjunto_bytes']),
                     'imagen' => strpos((string) $m['adjunto_mime'], 'image/') === 0,
+                    'audio' => strpos((string) $m['adjunto_mime'], 'audio/') === 0,
+                    'duracion' => isset($m['adjunto_duracion']) ? (int) $m['adjunto_duracion'] : null,
                     'url' => 'chat_adjunto.php?m=' . (int) $m['id_mensaje']];
         }
+        $llamada = !$borrado && !empty($m['llamada_url']) ? chat_url_sala((string) $m['llamada_url']) : null;
         return [
+            'llamada' => $llamada,
             'id'      => (int) $m['id_mensaje'],
             'autor'   => $m['autor'],
             'propio'  => $m['id_usuario'] !== null && (int) $m['id_usuario'] === $yo,
@@ -528,7 +575,8 @@ function chat_lista(): array
                        (SELECT u.activo FROM chat_participantes o JOIN usuarios u ON u.id_usuario = o.id_usuario
                          WHERE o.id_conversacion = c.id_conversacion AND o.id_usuario <> p.id_usuario LIMIT 1) AS otro_activo,
                        s.nro_solicitud, cl.denominacion,
-                       m.texto AS ult_texto, m.adjunto_nombre AS ult_adjunto, m.borrado_el AS ult_borrado,
+                       m.texto AS ult_texto, m.adjunto_nombre AS ult_adjunto, m.adjunto_mime AS ult_mime, m.borrado_el AS ult_borrado,
+                       " . (columna_existe('chat_mensajes', 'llamada_url') ? 'm.llamada_url' : 'NULL') . " AS ult_llamada,
                        m.id_usuario AS ult_uid, um.nombre AS ult_autor,
                        (SELECT COUNT(*) FROM chat_mensajes x
                          WHERE x.id_conversacion = c.id_conversacion AND x.id_mensaje > p.ultimo_leido) AS no_leidos
@@ -569,7 +617,8 @@ function chat_lista(): array
         $ult = '';
         if ((int) $f['ultimo_mensaje_id'] > 0) {
             $ult = $f['ult_borrado'] !== null ? 'Mensaje eliminado'
-                 : ($f['ult_texto'] !== null && $f['ult_texto'] !== '' ? $f['ult_texto'] : '📎 ' . $f['ult_adjunto']);
+                 : ($f['ult_llamada'] !== null ? '📹 Videollamada'
+                 : ($f['ult_texto'] !== null && $f['ult_texto'] !== '' ? $f['ult_texto'] : chat_adjunto_resumen($f['ult_adjunto'], $f['ult_mime'])));
             if ($f['ult_uid'] !== null && $f['tipo'] !== 'DIRECTA') {
                 $ult = ((int) $f['ult_uid'] === $yo ? 'Vos' : strtok((string) $f['ult_autor'], ' ')) . ': ' . $ult;
             } elseif ($f['ult_uid'] !== null && (int) $f['ult_uid'] === $yo) {
@@ -592,6 +641,15 @@ function chat_lista(): array
     return $out;
 }
 
+/** Lo que se ve en la lista cuando el último mensaje es solo un archivo. */
+function chat_adjunto_resumen(?string $nombre, ?string $mime): string
+{
+    if (strpos((string) $mime, 'audio/') === 0) {
+        return strpos((string) $nombre, 'Mensaje de voz') === 0 ? '🎤 Mensaje de voz' : '🎵 ' . $nombre;
+    }
+    return (strpos((string) $mime, 'image/') === 0 ? '📷 ' : '📎 ') . $nombre;
+}
+
 /** «14:32» si es de hoy, «ayer», o «18/11». */
 function chat_cuando(?string $dt): string
 {
@@ -609,18 +667,21 @@ function chat_cuando(?string $dt): string
 }
 
 /**
- * Para el globito flotante: cuántas conversaciones tienen algo sin leer (sin las
- * silenciadas). Una consulta, por los índices de participantes y la PK de
- * conversaciones.
+ * Para el globito flotante: cuántas conversaciones tienen algo sin leer (sin
+ * las silenciadas) y el id del mensaje sin leer más nuevo. Con ese id
+ * chat.js decide si suena: suena cuando aparece uno más nuevo que el último
+ * que ya sonó (los ids de mensaje son una sola numeración para todas las
+ * conversaciones). Una consulta, por los índices de participantes y la PK
+ * de conversaciones.
  */
-function chat_no_leidos(): int
+function chat_no_leidos(): array
 {
     $tipos = chat_habilitado() ? "('DIRECTA','GRUPO','SOLICITUD')" : "('SOLICITUD')";
-    $r = q1("SELECT COUNT(*) AS n FROM chat_participantes p
+    $r = q1("SELECT COUNT(*) AS n, COALESCE(MAX(c.ultimo_mensaje_id), 0) AS ultimo FROM chat_participantes p
                JOIN chat_conversaciones c ON c.id_conversacion = p.id_conversacion
               WHERE p.id_usuario = ? AND p.silenciada = 0 AND c.ultimo_mensaje_id > p.ultimo_leido AND c.tipo IN $tipos",
             [usuario_id()]);
-    return (int) $r['n'];
+    return ['no_leidos' => (int) $r['n'], 'ultimo' => (int) $r['ultimo']];
 }
 
 /** Usuarios activos para elegir destinatario o integrantes (sin el actual), con sus roles. */
@@ -637,13 +698,104 @@ function chat_usuarios(): array
            GROUP BY u.id_usuario, u.nombre ORDER BY u.nombre", [usuario_id()]));
 }
 
-/** Integrantes de una conversación (para el panel del grupo). */
+/** Integrantes de una conversación (para el panel del grupo), con su teléfono. */
 function chat_integrantes(int $idConv): array
 {
-    return array_map(function (array $u) {
-        return ['id' => (int) $u['id_usuario'], 'nombre' => $u['nombre'], 'admin' => (bool) (int) $u['es_admin'], 'activo' => (bool) (int) $u['activo']];
+    $tels = chat_telefonos(array_map('intval', array_column(q('SELECT id_usuario FROM chat_participantes WHERE id_conversacion = ?', [$idConv]), 'id_usuario')));
+    return array_map(function (array $u) use ($tels) {
+        $id = (int) $u['id_usuario'];
+        return ['id' => $id, 'nombre' => $u['nombre'], 'admin' => (bool) (int) $u['es_admin'], 'activo' => (bool) (int) $u['activo']]
+             + ($tels[$id] ?? []);
     }, q('SELECT u.id_usuario, u.nombre, p.es_admin, u.activo FROM chat_participantes p JOIN usuarios u ON u.id_usuario = p.id_usuario
            WHERE p.id_conversacion = ? ORDER BY p.es_admin DESC, u.nombre', [$idConv]));
+}
+
+// ---------------------------------------------------------------------
+// Llamadas
+// ---------------------------------------------------------------------
+
+/**
+ * Teléfono de cada usuario: el celular de su ficha (usuarios.celular) o, si
+ * no tiene, el de su vendedor. id => [tel (para mostrar), tel_url, wa_url].
+ * Los que no tienen no figuran.
+ */
+function chat_telefonos(array $ids): array
+{
+    $ids = array_values(array_unique(array_filter($ids)));
+    if (!$ids) {
+        return [];
+    }
+    $marcas = implode(',', array_fill(0, count($ids), '?'));
+    $propio = columna_existe('usuarios', 'celular') ? "NULLIF(u.celular, '')" : 'NULL';
+    $vend = columna_existe('vendedores', 'telefono')
+        ? "(SELECT NULLIF(v.telefono, '') FROM vendedores v WHERE v.id_usuario = u.id_usuario AND v.activo = 1
+             AND v.telefono IS NOT NULL AND v.telefono <> '' ORDER BY v.id_vendedor LIMIT 1)" : 'NULL';
+    $out = [];
+    foreach (q("SELECT u.id_usuario, COALESCE($propio, $vend) AS tel FROM usuarios u WHERE u.id_usuario IN ($marcas)", $ids) as $r) {
+        if ($r['tel'] !== null && $r['tel'] !== '') {
+            $out[(int) $r['id_usuario']] = ['tel' => tel_fmt($r['tel']), 'tel_url' => tel_link($r['tel']), 'wa_url' => tel_whatsapp($r['tel'])];
+        }
+    }
+    return $out;
+}
+
+/** En una directa, el otro: id, nombre y teléfono (si tiene). */
+function chat_el_otro(int $idConv): ?array
+{
+    $o = q1('SELECT u.id_usuario, u.nombre FROM chat_participantes p JOIN usuarios u ON u.id_usuario = p.id_usuario
+              WHERE p.id_conversacion = ? AND p.id_usuario <> ? LIMIT 1', [$idConv, usuario_id()]);
+    if (!$o) {
+        return null;
+    }
+    $id = (int) $o['id_usuario'];
+    return ['id' => $id, 'nombre' => $o['nombre']] + (chat_telefonos([$id])[$id] ?? []);
+}
+
+/** Dirección de una sala nueva: video_url + un nombre al azar (no se puede adivinar). */
+function chat_sala_nueva(): string
+{
+    $base = trim((string) cfg('video_url', 'https://meet.jit.si/'));
+    if (!preg_match('#^https://[^\s"<>]+$#', $base)) {
+        throw new ChatError('La dirección de las videollamadas (video_url en config.php) no es válida: tiene que empezar con https://.', 500);
+    }
+    return rtrim($base, '/') . '/Financiera-' . bin2hex(random_bytes(10));
+}
+
+/**
+ * Empieza una videollamada en la conversación: queda un mensaje con la sala
+ * («Unirse») y suena el aviso como cualquier mensaje. Devuelve [id del
+ * mensaje, dirección de la sala].
+ */
+function chat_videollamada(int $idConv): array
+{
+    $c = chat_conversacion_o_error($idConv);
+    if (!columna_existe('chat_mensajes', 'llamada_url')) {
+        throw new ChatError('Falta actualizar la base de mensajes: volvé a correr sql\\financiera_chat.sql.', 500);
+    }
+    $url = chat_sala_nueva();
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        q('INSERT INTO chat_mensajes (id_conversacion, id_usuario, llamada_url) VALUES (?, ?, ?)', [$idConv, usuario_id(), $url]);
+        $idMsj = (int) $pdo->lastInsertId();
+        q('UPDATE chat_conversaciones SET ultimo_mensaje_id = ?, ultimo_mensaje_el = NOW() WHERE id_conversacion = ?', [$idMsj, $idConv]);
+        if ($c['tipo'] === 'SOLICITUD') {
+            chat_hilo_participantes($idConv, (int) $c['id_solicitud']);
+        }
+        q('UPDATE chat_participantes SET ultimo_leido = ? WHERE id_conversacion = ? AND id_usuario = ?', [$idMsj, $idConv, usuario_id()]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    return [$idMsj, chat_url_sala($url)];
+}
+
+/** La sala con el nombre del usuario puesto (Jitsi lo toma del #), para que no lo tenga que escribir. */
+function chat_url_sala(string $url): string
+{
+    $u = usuario_actual();
+    return $url . '#userInfo.displayName=%22' . rawurlencode((string) ($u['nombre'] ?? '')) . '%22';
 }
 
 /** Título de una conversación ya cargada con chat_conversacion. */

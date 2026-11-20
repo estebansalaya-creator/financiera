@@ -47,11 +47,15 @@
     });
   }
 
-  /** Repite fn cada ms mientras la pestaña está visible (y una vez al volver a ella). */
-  function cadaTanto(fn, ms) {
+  /**
+   * Repite fn cada ms mientras la pestaña está visible (y una vez al volver a
+   * ella). Con msOculto sigue también con la pestaña oculta, más espaciado
+   * (para que el aviso con sonido llegue aunque se esté en otra pestaña).
+   */
+  function cadaTanto(fn, ms, msOculto) {
     var t = null, activo = true;
-    function prog() { clearTimeout(t); if (activo && !sinSesion) t = setTimeout(correr, ms); }
-    function correr() { if (document.hidden) return; Promise.resolve(fn()).catch(function () {}).then(prog); }
+    function prog() { clearTimeout(t); if (activo && !sinSesion) t = setTimeout(correr, document.hidden && msOculto ? msOculto : ms); }
+    function correr() { if (document.hidden && !msOculto) return; Promise.resolve(fn()).catch(function () {}).then(prog); }
     document.addEventListener('visibilitychange', function () { if (!document.hidden) { clearTimeout(t); correr(); } });
     prog();
     return { parar: function () { activo = false; clearTimeout(t); }, ya: function () { clearTimeout(t); correr(); } };
@@ -74,6 +78,84 @@
     return (+p[2]) + ' de ' + MESES[+p[1] - 1] + (+p[0] !== hoy.getFullYear() ? ' de ' + p[0] : '');
   }
 
+  // ── Sonido ───────────────────────────────────────────────────────────
+  // Suena cuando llega un mensaje más nuevo que el último que ya sonó. Ese id
+  // se guarda en el navegador (compartido entre pestañas): con dos pestañas
+  // abiertas suena una vez, y lo que ya sonó no vuelve a sonar al cambiar de
+  // pantalla. Se apaga y prende con el botón 🔔 de la pantalla Mensajes.
+  var CLAVE_SONIDO = 'fin_chat_sonido', CLAVE_SONADO = 'fin_chat_sonado', CLAVE_SONO_EL = 'fin_chat_sono_el';
+  function leerLS(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function guardarLS(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function sonidoActivo() { return leerLS(CLAVE_SONIDO) !== '0'; }
+
+  /** Un «ding» de dos notas, armado acá (WAV en memoria): no hace falta ningún archivo de sonido. */
+  function crearDing() {
+    var sr = 22050, n = Math.floor(sr * 0.55), datos = new Int16Array(n);
+    var notas = [[880, 0], [1318.5, 0.11]];
+    for (var i = 0; i < n; i++) {
+      var t = i / sr, v = 0;
+      for (var k = 0; k < notas.length; k++) {
+        var u = t - notas[k][1];
+        if (u >= 0) v += Math.sin(2 * Math.PI * notas[k][0] * u) * Math.exp(-u * 8) * Math.min(1, u * 200);
+      }
+      datos[i] = Math.max(-1, Math.min(1, v * 0.35)) * 32767;
+    }
+    var buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+    function txt(o, s) { for (var j = 0; j < s.length; j++) dv.setUint8(o + j, s.charCodeAt(j)); }
+    txt(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); txt(8, 'WAVE'); txt(12, 'fmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, sr, true);
+    dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); txt(36, 'data'); dv.setUint32(40, n * 2, true);
+    for (var x = 0; x < n; x++) dv.setInt16(44 + x * 2, datos[x], true);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+  var audioDing = null;
+  function elDing() {
+    if (!audioDing) { audioDing = new Audio(crearDing()); audioDing.volume = 0.7; }
+    return audioDing;
+  }
+  function ding() {
+    try {
+      var a = elDing();
+      a.currentTime = 0;
+      var p = a.play();
+      if (p && p.catch) p.catch(function () {});     // sin un click previo en la página, el navegador puede no dejar
+    } catch (e) {}
+  }
+  // Safari (iPhone) solo deja sonar si ya hubo un toque en la página: el primero lo «habilita» en silencio.
+  function habilitar() {
+    document.removeEventListener('pointerdown', habilitar, true);
+    document.removeEventListener('keydown', habilitar, true);
+    try {
+      var a = elDing();
+      a.muted = true;
+      var p = a.play();
+      var fin = function () { a.pause(); a.currentTime = 0; a.muted = false; };
+      if (p && p.then) p.then(fin, fin); else fin();
+    } catch (e) {}
+  }
+  document.addEventListener('pointerdown', habilitar, true);
+  document.addEventListener('keydown', habilitar, true);
+
+  /** Anota que ya se vio hasta ese mensaje, sin sonar. */
+  function anotarVisto(ultimo) {
+    var g = leerLS(CLAVE_SONADO);
+    if (g === null || (+ultimo || 0) > +g) guardarLS(CLAVE_SONADO, String(+ultimo || 0));
+  }
+
+  /** Suena si «ultimo» es más nuevo que lo último que ya sonó. La primera vez en el navegador solo anota. */
+  function avisarNuevo(ultimo) {
+    ultimo = +ultimo || 0;
+    var g = leerLS(CLAVE_SONADO);
+    if (g === null) { guardarLS(CLAVE_SONADO, String(ultimo)); return; }
+    if (ultimo <= +g) return;
+    guardarLS(CLAVE_SONADO, String(ultimo));
+    if (!sonidoActivo()) return;
+    var ahora = Date.now();
+    if (ahora - (+(leerLS(CLAVE_SONO_EL) || 0)) < 3000) return;      // dos avisos juntos: suena uno
+    guardarLS(CLAVE_SONO_EL, String(ahora));
+    ding();
+  }
+
   // ── Globito flotante de Mensajes ──────────────────────────────────────────
   var contador = document.querySelector('[data-chat-contador]');
   var tituloBase = document.title;
@@ -94,9 +176,10 @@
   var relojContador = null;
   if (contador) {
     ponerContador(+contador.getAttribute('data-chat-contador') || 0);
+    avisarNuevo(contador.getAttribute('data-chat-ultimo'));
     relojContador = cadaTanto(function () {
-      return pedir({ accion: 'contador', auto: 1 }).then(function (d) { ponerContador(d.no_leidos); });
-    }, 20000);
+      return pedir({ accion: 'contador', auto: 1 }).then(function (d) { ponerContador(d.no_leidos); avisarNuevo(d.ultimo); });
+    }, 20000, 60000);
   }
 
   // ── Una conversación ─────────────────────────────────────────────────
@@ -145,7 +228,15 @@
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg></label>' +
       '<button type="button" class="btn btn-ghost chat-emoji-btn" title="Emojis" aria-label="Emojis" aria-expanded="false">😊</button>' +
       '<textarea rows="1" maxlength="4000" placeholder="Escribí un mensaje…" title="Enter envía · Shift+Enter baja de renglón" aria-label="Mensaje"></textarea>' +
+      '<button type="button" class="btn btn-ghost chat-mic" title="Grabar un mensaje de voz" aria-label="Grabar un mensaje de voz" hidden>' +
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg></button>' +
       '<button type="submit" class="btn btn-primary chat-enviar" title="Enviar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg><span>Enviar</span></button>' +
+      '</div>' +
+      '<div class="chat-grabando" hidden>' +
+      '<button type="button" class="btn btn-ghost chat-grab-cancelar" title="Descartar (Esc)">Descartar</button>' +
+      '<span class="chat-grab-punto" aria-hidden="true"></span><span class="chat-grab-tiempo">0:00</span>' +
+      '<span class="chat-grab-txt">Grabando… </span>' +
+      '<button type="button" class="btn btn-primary chat-grab-enviar" title="Enviar el mensaje de voz">Enviar</button>' +
       '</div>';
     this.form = f;
     this.txt = f.querySelector('textarea');
@@ -153,6 +244,17 @@
     this.err = f.querySelector('.chat-error');
     this.chipArchivo = f.querySelector('.chat-archivo');
     this.btnEmoji = f.querySelector('.chat-emoji-btn');
+    this.btnMic = f.querySelector('.chat-mic');
+    this.barraGrab = f.querySelector('.chat-grabando');
+    if (puedeGrabar()) {
+      this.btnMic.hidden = false;
+      this.btnMic.addEventListener('click', function () { self.grabar(); });
+      f.querySelector('.chat-grab-cancelar').addEventListener('click', function () { self.pararGrabacion(false); });
+      f.querySelector('.chat-grab-enviar').addEventListener('click', function () { self.pararGrabacion(true); });
+      r.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && self.rec) { e.preventDefault(); e.stopPropagation(); self.pararGrabacion(false); }
+      });
+    }
     this.btnEmoji.addEventListener('click', function () { self.emojis(); });
 
     this.txt.addEventListener('keydown', function (e) {
@@ -241,6 +343,11 @@
       self.leidoOtro = d.leido_otro || 0;
       if (antes !== self.leidoOtro) self.marcarVistos();
       if (!d.mensajes.length) return;
+      var ajenos = d.mensajes.filter(function (m) { return !m.propio && !m.sistema; });
+      if (ajenos.length) {
+        var ult = ajenos[ajenos.length - 1].id;
+        if (!document.hasFocus() && !(self.info && self.info.silenciada)) avisarNuevo(ult); else anotarVisto(ult);
+      }
       self.vacio.hidden = true;
       self.agregar(d.mensajes, false);
       if (abajo) self.lista.scrollTop = self.lista.scrollHeight;
@@ -291,8 +398,20 @@
     if (!m.propio && !directa) b.appendChild(el('div', 'chat-autor', m.autor || '—'));
     if (m.borrado) {
       b.appendChild(el('div', 'chat-texto chat-borrado', 'Mensaje eliminado'));
+    } else if (m.llamada) {
+      var cl = el('div', 'chat-llamada');
+      cl.appendChild(el('div', 'chat-llamada-tit', '📹 Videollamada'));
+      cl.appendChild(el('div', 'chat-llamada-txt', m.propio ? 'Empezaste una videollamada.' : (m.autor || 'Alguien') + ' empezó una videollamada.'));
+      var unirse = el('a', 'btn btn-sm btn-ok', m.propio ? 'Volver a entrar' : 'Unirse');
+      unirse.href = m.llamada;
+      unirse.target = '_blank';
+      unirse.rel = 'noopener';
+      cl.appendChild(unirse);
+      b.appendChild(cl);
     } else {
-      if (m.adjunto) {
+      if (m.adjunto && m.adjunto.audio) {
+        b.appendChild(reproductor(m.adjunto));
+      } else if (m.adjunto) {
         var a = el('a', 'chat-adjunto' + (m.adjunto.imagen ? ' imagen' : ''));
         a.href = m.adjunto.url;
         a.target = '_blank';
@@ -439,9 +558,10 @@
     guardarReciente(em);
   };
 
-  Hilo.prototype.enviar = function () {
-    var self = this, texto = this.txt.value.trim(), f = this.file.files[0];
-    if (!texto && !f) return;
+  /** voz: { blob, nombre, seg } para un mensaje de voz (no toca lo escrito ni el archivo elegido). */
+  Hilo.prototype.enviar = function (voz) {
+    var self = this, texto = voz ? '' : this.txt.value.trim(), f = voz ? null : this.file.files[0];
+    if (!voz && !texto && !f) return;
     if (this.enviando) return;
     var fd = new FormData();
     fd.append('accion', 'enviar');
@@ -450,15 +570,22 @@
     else if (this.op.para) fd.append('para', this.op.para);
     fd.append('texto', texto);
     if (f) fd.append('archivo', f);
+    if (voz) {
+      fd.append('archivo', voz.blob, voz.nombre);
+      fd.append('voz', '1');
+      fd.append('duracion', voz.seg);
+    }
     this.enviando = true;
     this.form.classList.add('enviando');
     this.error('');
     pedir(null, fd).then(function (d) {
-      if (self.selector) self.emojis(true);
-      self.txt.value = '';
-      self.file.value = '';
-      self.mostrarArchivo();
-      self.alto();
+      if (!voz) {
+        if (self.selector) self.emojis(true);
+        self.txt.value = '';
+        self.file.value = '';
+        self.mostrarArchivo();
+        self.alto();
+      }
       var nueva = !self.conv;
       self.conv = d.conv;
       if (nueva) return self.cargar();
@@ -470,7 +597,97 @@
       .then(function () { self.enviando = false; self.form.classList.remove('enviando'); self.txt.focus(); });
   };
 
-  Hilo.prototype.cerrar = function () { this.reloj.parar(); };
+  Hilo.prototype.cerrar = function () { this.pararGrabacion(false); this.reloj.parar(); };
+
+  // ── Mensajes de voz ──────────────────────────────────────────────────
+  var VOZ_MAX = 300;   // segundos (CHAT_VOZ_MAX_SEG en inc/chat.php)
+
+  /** El micrófono solo se puede usar con https (o en localhost) y con MediaRecorder. */
+  function puedeGrabar() {
+    return !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+  }
+
+  function minSeg(s) {
+    s = Math.max(0, Math.round(s || 0));
+    return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+  }
+
+  Hilo.prototype.grabar = function () {
+    var self = this;
+    if (this.rec || this.enviando) return;
+    this.error('');
+    if (this.selector) this.emojis(true);
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then(function (stream) {
+      var tipos = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+      var tipo = tipos.filter(function (t) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t); })[0] || '';
+      var rec;
+      try {
+        rec = new MediaRecorder(stream, tipo ? { mimeType: tipo, audioBitsPerSecond: 32000 } : undefined);
+      } catch (e) {
+        rec = new MediaRecorder(stream);
+      }
+      var partes = [];
+      rec.ondataavailable = function (e) { if (e.data && e.data.size) partes.push(e.data); };
+      rec.onstop = function () {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        clearInterval(self.recReloj);
+        var seg = Math.max(1, Math.round((Date.now() - self.recIni) / 1000));
+        var mandar = self.recEnviar;
+        self.rec = null;
+        self.form.classList.remove('grabando');
+        self.barraGrab.hidden = true;
+        if (!mandar || !partes.length) return;
+        var mime = (rec.mimeType || tipo || 'audio/webm').split(';')[0];
+        var ext = mime.indexOf('mp4') !== -1 ? 'm4a' : (mime.indexOf('ogg') !== -1 ? 'ogg' : 'webm');
+        self.enviar({ blob: new Blob(partes, { type: mime }), nombre: 'Mensaje de voz.' + ext, seg: Math.min(seg, VOZ_MAX) });
+      };
+      self.rec = rec;
+      self.recEnviar = false;
+      self.recIni = Date.now();
+      rec.start(1000);
+      self.form.classList.add('grabando');
+      self.barraGrab.hidden = false;
+      var tiempo = self.barraGrab.querySelector('.chat-grab-tiempo');
+      tiempo.textContent = '0:00';
+      self.recReloj = setInterval(function () {
+        var s = (Date.now() - self.recIni) / 1000;
+        tiempo.textContent = minSeg(s);
+        if (s >= VOZ_MAX) self.pararGrabacion(true);       // a los 5 minutos se manda solo
+      }, 250);
+      self.barraGrab.querySelector('.chat-grab-enviar').focus();
+    }).catch(function (e) {
+      self.error(e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')
+        ? 'El navegador no dio permiso para usar el micrófono. Habilitalo en el candado de la barra de direcciones y probá de nuevo.'
+        : (e && e.name === 'NotFoundError' ? 'No se encontró un micrófono en este equipo.' : 'No se pudo usar el micrófono' + (e && e.message ? ': ' + e.message : '.')));
+    });
+  };
+
+  /** Termina la grabación: enviar = true la manda, false la descarta. */
+  Hilo.prototype.pararGrabacion = function (enviar) {
+    if (!this.rec) return;
+    this.recEnviar = !!enviar;
+    if (this.rec.state !== 'inactive') this.rec.stop();
+  };
+
+  /** El audio de un mensaje: reproductor del navegador y, en los de voz, la duración. Suena uno por vez. */
+  function reproductor(adj) {
+    var c = el('div', 'chat-audio');
+    var au = el('audio');
+    au.controls = true;
+    au.preload = 'metadata';
+    au.src = adj.url;
+    au.addEventListener('play', function () {
+      document.querySelectorAll('.chat-audio audio').forEach(function (x) { if (x !== au) x.pause(); });
+    });
+    c.appendChild(au);
+    var pie = el('div', 'chat-audio-pie');
+    pie.appendChild(el('span', null, adj.duracion ? '🎤 Mensaje de voz · ' + minSeg(adj.duracion) : '🎵 ' + adj.nombre + ' · ' + adj.peso));
+    var bajar = el('a', null, 'Descargar');
+    bajar.href = adj.url + '&bajar=1';
+    pie.appendChild(bajar);
+    c.appendChild(pie);
+    return c;
+  }
 
   // Hilos sueltos (ficha de la solicitud)
   document.querySelectorAll('[data-chat-hilo]').forEach(function (r) {
@@ -501,7 +718,7 @@
     ulConvs.innerHTML = '';
     var vis = convs.filter(function (c) { return !f || norm(c.titulo + ' ' + c.ultimo).indexOf(f) !== -1; });
     if (!vis.length) {
-      ulConvs.appendChild(el('li', 'chat-lista-vacia', convs.length ? 'Ninguna conversación coincide.' : 'Todavía no tenés conversaciones. Empezá una con «Nuevo mensaje».'));
+      ulConvs.appendChild(el('li', 'chat-lista-vacia', convs.length ? 'Ninguna conversación coincide.' : 'Todavía no tenés conversaciones. Empezá una con «Nuevo».'));
       return;
     }
     vis.forEach(function (c) {
@@ -532,8 +749,8 @@
     return pedir({ accion: 'lista', auto: 1 }).then(function (d) {
       convs = d.conversaciones;
       dibujarLista();
-      var n = convs.filter(function (c) { return c.no_leidos && !c.silenciada; }).length;
-      ponerContador(n);
+      ponerContador(d.no_leidos);
+      avisarNuevo(d.ultimo);
     });
   }
 
@@ -542,6 +759,38 @@
     b.type = 'button';
     b.addEventListener('click', fn);
     return b;
+  }
+
+  /** Botón de la cabecera: ícono y texto (en el celular, solo el ícono). destino: función o dirección. */
+  function botonIco(ico, texto, destino, titulo, clase) {
+    var b = el(typeof destino === 'string' ? 'a' : 'button', 'btn btn-sm btn-ghost chat-cab-btn' + (clase ? ' ' + clase : ''));
+    if (typeof destino === 'string') {
+      b.href = destino;
+      if (/^https?:/.test(destino)) { b.target = '_blank'; b.rel = 'noopener'; }
+    } else {
+      b.type = 'button';
+      b.addEventListener('click', destino);
+    }
+    b.title = titulo || texto;
+    b.setAttribute('aria-label', titulo || texto);
+    b.appendChild(el('span', 'chat-cab-ico', ico));
+    b.appendChild(el('span', 'chat-cab-btn-txt', texto));
+    return b;
+  }
+
+  /** Arma la sala, la anuncia en la conversación y la abre en otra pestaña. */
+  function videollamada(info) {
+    if (!window.confirm('¿Empezar una videollamada en «' + info.titulo + '»?\n\nSe avisa en la conversación (con sonido) y la sala se abre en otra pestaña.')) return;
+    var w = window.open('', '_blank');                // ahora, con el click: si no, el navegador la bloquea
+    if (w) { try { w.opener = null; w.document.title = 'Videollamada…'; w.document.body.innerHTML = '<p style="font:16px sans-serif;padding:24px">Abriendo la videollamada…</p>'; } catch (e) {} }
+    pedir(null, { accion: 'videollamada', conv: info.id }).then(function (d) {
+      if (w && !w.closed) w.location.href = d.sala;
+      if (hilo) hilo.nuevos();
+      cargarLista();
+    }).catch(function (e) {
+      if (w && !w.closed) w.close();
+      if (hilo) hilo.error(e.message); else alert(e.message);
+    });
   }
 
   function dibujarCabecera(info) {
@@ -555,18 +804,22 @@
     if (info && info.tipo === 'SOLICITUD') t.appendChild(el('small', null, 'Hilo de la solicitud'));
     cab.appendChild(t);
     var acc = el('div', 'chat-cab-acc');
-    if (info && info.tipo === 'SOLICITUD') {
-      var a = el('a', 'btn btn-sm btn-ghost', 'Ver solicitud');
-      a.href = 'solicitud.php?id=' + info.solicitud;
-      acc.appendChild(a);
+    var otro = info && info.otro;
+    if (otro && otro.tel_url) {
+      acc.appendChild(botonIco('📞', 'Llamar', otro.tel_url, 'Llamar a ' + otro.nombre + ' · ' + otro.tel));
     }
-    if (info && info.tipo === 'GRUPO') acc.appendChild(boton('Integrantes', 'btn-ghost', function () { dlgIntegrantes(info); }));
+    if (otro && otro.wa_url) {
+      acc.appendChild(botonIco('💬', 'WhatsApp', otro.wa_url, 'Escribirle o llamarlo por WhatsApp · ' + otro.tel, 'chat-wa'));
+    }
+    if (info) acc.appendChild(botonIco('📹', 'Videollamada', function () { videollamada(info); }, 'Empezar una videollamada: se avisa acá y se abre la sala en otra pestaña'));
+    if (info && info.tipo === 'SOLICITUD') acc.appendChild(botonIco('📋', 'Solicitud', 'solicitud.php?id=' + info.solicitud, 'Ver la solicitud'));
+    if (info && info.tipo === 'GRUPO') acc.appendChild(botonIco('👥', 'Integrantes', function () { dlgIntegrantes(info); }, 'Integrantes del grupo'));
     if (info && info.participa) {
-      acc.appendChild(boton(info.silenciada ? '🔔 Activar avisos' : '🔕 Silenciar', 'btn-ghost', function () {
+      acc.appendChild(botonIco(info.silenciada ? '🔔' : '🔕', info.silenciada ? 'Activar avisos' : 'Silenciar', function () {
         pedir(null, { accion: 'silenciar', conv: info.id, si: info.silenciada ? 0 : 1 }).then(function () {
           info.silenciada = !info.silenciada; dibujarCabecera(info); cargarLista();
         });
-      }));
+      }, info.silenciada ? 'Volver a recibir avisos de esta conversación' : 'Que esta conversación no sume al globito ni suene'));
     }
     if (info && info.tipo === 'GRUPO') acc.appendChild(boton('Salir', 'btn-ghost', function () {
       if (!window.confirm('¿Salir del grupo «' + info.titulo + '»? Para volver te tiene que agregar quien lo administra.')) return;
@@ -625,7 +878,7 @@
     err.hidden = true;
     c.appendChild(err);
     var pie = el('div', 'form-acciones');
-    pie.appendChild(boton('Cancelar', 'btn-secondary', function () { d.close(); }));
+    pie.appendChild(boton(textoOk ? 'Cancelar' : 'Cerrar', 'btn-secondary', function () { d.close(); }));
     if (textoOk) {
       var ok = el('button', 'btn btn-primary', textoOk);
       ok.type = 'submit';
@@ -727,6 +980,19 @@
     info.integrantes.forEach(function (i) {
       var li = el('li');
       li.appendChild(el('span', null, i.nombre + (i.admin ? ' · administra' : '') + (i.activo ? '' : ' (de baja)')));
+      if (i.tel_url) {
+        var tels = el('span', 'chat-int-tel');
+        var tl = el('a', null, '📞 ' + i.tel);
+        tl.href = i.tel_url;
+        tl.title = 'Llamar a ' + i.nombre;
+        tels.appendChild(tl);
+        if (i.wa_url) {
+          var wa = el('a', null, '💬');
+          wa.href = i.wa_url; wa.target = '_blank'; wa.rel = 'noopener'; wa.title = 'WhatsApp';
+          tels.appendChild(wa);
+        }
+        li.appendChild(tels);
+      }
       if (info.admin && !i.admin) {
         var b = boton('Sacar', 'btn-ghost', function () {
           quitar[i.id] = !quitar[i.id];
@@ -772,6 +1038,22 @@
     var salir = app.querySelector('[data-chat-salir]');
     if (salir && document.activeElement !== buscar) location.href = salir.getAttribute('href');
   });
+
+  var btnSonido = app.querySelector('[data-chat-sonido]');
+  function dibujarSonido() {
+    var si = sonidoActivo();
+    btnSonido.textContent = si ? '🔔' : '🔕';
+    btnSonido.title = si ? 'Sonido de los mensajes nuevos: activado (click para apagarlo)' : 'Sonido de los mensajes nuevos: apagado (click para prenderlo)';
+    btnSonido.setAttribute('aria-pressed', si ? 'true' : 'false');
+  }
+  if (btnSonido) {
+    dibujarSonido();
+    btnSonido.addEventListener('click', function () {
+      guardarLS(CLAVE_SONIDO, sonidoActivo() ? '0' : '1');
+      dibujarSonido();
+      if (sonidoActivo()) ding();                     // para escuchar cómo suena
+    });
+  }
 
   app.querySelector('[data-nuevo]').addEventListener('click', dlgNuevo);
   app.querySelector('[data-nuevo-grupo]').addEventListener('click', dlgGrupo);

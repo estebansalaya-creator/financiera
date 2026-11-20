@@ -58,6 +58,7 @@ if (es_post()) {
                 'email'   => mb_substr(strtolower(str_replace(' ', '', post_str('email'))), 0, 150),
                 'usuario' => mb_substr(strtolower(str_replace(' ', '', post_str('usuario'))), 0, 50),
                 'activo'  => post_str('activo') === '1' ? 1 : 0,
+                'celular' => post_str('celular'),
                 'rol_ids' => post_ids('rol_ids')];
         $clave  = (string) ($_POST['clave'] ?? '');
         $clave2 = (string) ($_POST['clave2'] ?? '');
@@ -77,6 +78,14 @@ if (es_post()) {
                 $errores[] = 'El usuario va sin espacios: letras, números, punto o guion (de 3 a 50).';
             } elseif ($o = q1('SELECT nombre FROM usuarios WHERE usuario = ? AND id_usuario <> ?', [$reg['usuario'], $uid])) {
                 $errores[] = 'El usuario «' . $reg['usuario'] . '» ya es de «' . $o['nombre'] . '».';
+            }
+        }
+        // Celular (para Llamar y WhatsApp desde Mensajes): mismo formato que el resto de los teléfonos.
+        $celular = null;
+        if ($reg['celular'] !== '') {
+            $celular = tel_normalizar($reg['celular'], true);
+            if ($celular === null) {
+                $errores[] = tel_error('Celular');
             }
         }
         if (!$uid && $clave === '') {
@@ -119,6 +128,9 @@ if (es_post()) {
                       [$reg['nombre'], $reg['email'], $reg['usuario'] ?: null, $reg['activo']]);
                     $uid = (int) $pdo->lastInsertId();
                 }
+                if (columna_existe('usuarios', 'celular')) {
+                    q('UPDATE usuarios SET celular = ? WHERE id_usuario = ?', [$celular, $uid]);
+                }
                 if ($clave !== '') {
                     q('UPDATE usuarios SET password_hash = ?, intentos_fallidos = 0, bloqueado_hasta = NULL WHERE id_usuario = ?',
                       [password_hash($clave, PASSWORD_DEFAULT), $uid]);
@@ -151,14 +163,18 @@ if (es_post()) {
 
 $editId = (int) get_str('edit');
 if ($editId && $reg === null) {
-    $reg = q1('SELECT id_usuario, nombre, email, usuario, activo FROM usuarios WHERE id_usuario = ?', [$editId]);
+    $reg = q1('SELECT id_usuario, nombre, email, usuario, activo, '
+            . (columna_existe('usuarios', 'celular') ? 'celular' : 'NULL AS celular') . ' FROM usuarios WHERE id_usuario = ?', [$editId]);
+    if ($reg) {
+        $reg['celular'] = tel_fmt($reg['celular']);
+    }
     if (!$reg) {
         flash('danger', 'El usuario no existe.');
         redirigir('admin_usuarios.php');
     }
     $reg['rol_ids'] = array_map('intval', array_column(q('SELECT id_rol FROM usuarios_roles WHERE id_usuario = ?', [$editId]), 'id_rol'));
 } elseif ($reg === null && get_str('nuevo') !== '') {
-    $reg = ['id_usuario' => null, 'nombre' => '', 'email' => '', 'usuario' => '', 'activo' => 1, 'rol_ids' => []];
+    $reg = ['id_usuario' => null, 'nombre' => '', 'email' => '', 'usuario' => '', 'activo' => 1, 'celular' => '', 'rol_ids' => []];
 }
 if ($reg && $reg['id_usuario']) {
     $reg += q1('SELECT ultimo_acceso, creado_el, (password_hash IS NOT NULL) AS tiene_clave,
@@ -246,6 +262,11 @@ if ($reg):
           <small class="campo-ayuda"><?= $r['id_usuario'] ? 'Vacía, no se cambia. ' : '' ?>Al menos <?= CLAVE_MIN ?> caracteres.</small></div>
         <div class="campo" style="--span:4"><label for="clave2">Repetir contraseña</label>
           <input id="clave2" name="clave2" type="password" autocomplete="new-password" minlength="<?= CLAVE_MIN ?>" <?= $r['id_usuario'] ? '' : 'required' ?>></div>
+        <?php if (columna_existe('usuarios', 'celular')): ?>
+        <div class="campo" style="--span:4"><label for="celular">Celular</label>
+          <input id="celular" name="celular" inputmode="tel" class="mono" data-tel="movil" value="<?= h((string) ($r['celular'] ?? '')) ?>" maxlength="30" placeholder="11 15 2345-6789">
+          <small class="campo-ayuda">Para llamarlo o escribirle por WhatsApp desde Mensajes.</small></div>
+        <?php endif; ?>
       </div>
     </div>
     <div class="bloque">

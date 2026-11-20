@@ -27,6 +27,20 @@
 --
 --  Los mensajes no se borran: el autor puede retirarlo (borrado_el) y en
 --  la conversación queda «Mensaje eliminado».
+--
+--  Mensajes de voz: son un adjunto de audio (webm / ogg / m4a) grabado en
+--  el navegador, con su duración en adjunto_duracion (los audios grabados
+--  por el navegador no siempre la traen adentro).
+--
+--  Llamadas
+--    usuarios.celular .......... el celular de cada usuario (Administración ›
+--                                Usuarios, o cada uno en Mis datos), con el
+--                                formato de financiera_telefonos.sql. Sin él
+--                                se usa el de su vendedor. Con eso la
+--                                conversación ofrece Llamar y WhatsApp.
+--    chat_mensajes.llamada_url . la sala de una videollamada (Jitsi u otro
+--                                servidor: config.php -> video_url). El
+--                                mensaje muestra «Unirse».
 -- =====================================================================
 
 SET NAMES utf8mb4;
@@ -71,6 +85,8 @@ CREATE TABLE IF NOT EXISTS chat_mensajes (
     adjunto_nombre    VARCHAR(200) NULL,                -- como lo subieron
     adjunto_mime      VARCHAR(100) NULL,
     adjunto_bytes     INT UNSIGNED NULL,
+    adjunto_duracion  SMALLINT UNSIGNED NULL,           -- segundos, solo mensajes de voz
+    llamada_url       VARCHAR(255) NULL,                -- sala de videollamada
     creado_el         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     borrado_el        DATETIME     NULL,
     PRIMARY KEY (id_mensaje),
@@ -79,6 +95,30 @@ CREATE TABLE IF NOT EXISTS chat_mensajes (
     CONSTRAINT fk_chatmsj_conv    FOREIGN KEY (id_conversacion) REFERENCES chat_conversaciones (id_conversacion),
     CONSTRAINT fk_chatmsj_usuario FOREIGN KEY (id_usuario)      REFERENCES usuarios (id_usuario)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Bases creadas con la primera versión de este script: la columna de la
+-- duración de los mensajes de voz (MySQL 8 no tiene ADD COLUMN IF NOT EXISTS).
+SET @falta := (SELECT COUNT(*) = 0 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_mensajes' AND COLUMN_NAME = 'adjunto_duracion');
+SET @sql := IF(@falta, 'ALTER TABLE chat_mensajes ADD COLUMN adjunto_duracion SMALLINT UNSIGNED NULL AFTER adjunto_bytes', 'DO 0');
+PREPARE st FROM @sql;
+EXECUTE st;
+DEALLOCATE PREPARE st;
+
+SET @falta := (SELECT COUNT(*) = 0 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_mensajes' AND COLUMN_NAME = 'llamada_url');
+SET @sql := IF(@falta, 'ALTER TABLE chat_mensajes ADD COLUMN llamada_url VARCHAR(255) NULL AFTER adjunto_duracion', 'DO 0');
+PREPARE st FROM @sql;
+EXECUTE st;
+DEALLOCATE PREPARE st;
+
+-- Celular de los usuarios (para Llamar y WhatsApp desde Mensajes)
+SET @falta := (SELECT COUNT(*) = 0 FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'usuarios' AND COLUMN_NAME = 'celular');
+SET @sql := IF(@falta, 'ALTER TABLE usuarios ADD COLUMN celular VARCHAR(20) NULL AFTER email', 'DO 0');
+PREPARE st FROM @sql;
+EXECUTE st;
+DEALLOCATE PREPARE st;
 
 -- ---------------------------------------------------------------------
 -- Menú: «Mensajes» en la raíz, después de Tablas y parámetros, para todos

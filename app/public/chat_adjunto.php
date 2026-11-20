@@ -6,7 +6,7 @@ require __DIR__ . '/../inc/chat.php';
 
 // ---------------------------------------------------------------------
 // Archivo adjunto de un mensaje
-//   chat_adjunto.php?m=N          PDF e imágenes se muestran; el resto se descarga
+//   chat_adjunto.php?m=N          PDF, imágenes y audio se muestran; el resto se descarga
 //   chat_adjunto.php?m=N&bajar=1  siempre se descarga
 // Solo para quien puede ver la conversación (chat_conversacion), y no si
 // el autor retiró el mensaje.
@@ -44,10 +44,47 @@ $modo   = $enLinea && get_str('bajar') === '' ? 'inline' : 'attachment';
 while (ob_get_level() > 0) {
     ob_end_clean();
 }
+// Pedidos por partes (Range): el iPhone no reproduce un audio si el
+// servidor no los acepta, y sirven para adelantar y atrasar.
+$tam = (int) filesize($ruta);
+$ini = 0;
+$fin = $tam - 1;
+$rango = $_SERVER['HTTP_RANGE'] ?? '';
+if (is_string($rango) && preg_match('/^bytes=(\d*)-(\d*)$/', trim($rango), $r) && ($r[1] !== '' || $r[2] !== '')) {
+    if ($r[1] === '') {
+        $ini = max(0, $tam - (int) $r[2]);          // los últimos N bytes
+    } else {
+        $ini = (int) $r[1];
+        if ($r[2] !== '') {
+            $fin = min($fin, (int) $r[2]);
+        }
+    }
+    if ($ini > $fin || $ini >= $tam) {
+        http_response_code(416);
+        header('Content-Range: bytes */' . $tam);
+        exit;
+    }
+    http_response_code(206);
+    header('Content-Range: bytes ' . $ini . '-' . $fin . '/' . $tam);
+}
+
 header('Content-Type: ' . $mime);
-header('Content-Length: ' . filesize($ruta));
+header('Accept-Ranges: bytes');
+header('Content-Length: ' . ($fin - $ini + 1));
 header('Content-Disposition: ' . $modo . '; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($nombre));
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: private, no-store');
-readfile($ruta);
+
+$fh = fopen($ruta, 'rb');
+fseek($fh, $ini);
+$falta = $fin - $ini + 1;
+while ($falta > 0 && !feof($fh)) {
+    $trozo = (string) fread($fh, (int) min(65536, $falta));
+    if ($trozo === '') {
+        break;
+    }
+    echo $trozo;
+    $falta -= strlen($trozo);
+}
+fclose($fh);
 exit;

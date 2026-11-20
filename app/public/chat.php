@@ -39,8 +39,9 @@ if ($error) {
     <div class="chat-lado-head">
       <strong>Mensajes</strong>
       <div class="chat-lado-acc">
-        <?= boton('Nuevo mensaje', 'primary', null, 'agregar', false, true, ['data-nuevo' => true]) ?>
+        <?= boton('Nuevo', 'primary', null, 'agregar', false, true, ['data-nuevo' => true, 'title' => 'Nuevo mensaje: elegir a quién escribirle']) ?>
         <?= boton('Grupo', 'ghost', null, 'grupo', false, true, ['data-nuevo-grupo' => true, 'title' => 'Armar un grupo']) ?>
+        <button type="button" class="btn-accion chat-sonido" data-chat-sonido aria-pressed="true">🔔</button>
         <a class="btn-accion chat-cerrar" href="<?= h($volver) ?>" data-chat-salir title="Cerrar Mensajes y volver" aria-label="Cerrar Mensajes y volver"><?= icono('cerrar') ?></a>
       </div>
     </div>

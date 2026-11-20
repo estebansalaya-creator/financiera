@@ -272,6 +272,19 @@ function tel_es_movil(?string $n): bool
     return (bool) preg_match('/^(549\d{10}|\+\d{8,15})$/', (string) $n);
 }
 
+/** Link para llamar: tel:+5491123456789 (un 0800 o uno de otro país, como está). */
+function tel_link(string $n): string
+{
+    $d = (string) preg_replace('/[^\d+]/', '', $n);
+    return 'tel:' . (preg_match('/^54\d{10,11}$/', $d) ? '+' . $d : $d);
+}
+
+/** Link para escribirle por WhatsApp (solo celulares), o null. */
+function tel_whatsapp(?string $n): ?string
+{
+    return tel_es_movil($n) ? 'https://wa.me/' . preg_replace('/\D/', '', (string) $n) : null;
+}
+
 /** Mensaje de error para un teléfono que no se entiende. */
 function tel_error(string $que): string
 {
