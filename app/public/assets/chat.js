@@ -1,6 +1,6 @@
 /* Mensajes internos (chat_api.php). Tres piezas, cada una se arma si está
    su elemento en la página:
-     [data-chat-contador]  el botón Mensajes del encabezado: cada 20 s pide
+     [data-chat-contador]  el globito flotante de Mensajes: cada 20 s pide
                            cuántas conversaciones tienen algo sin leer.
      [data-chat-hilo]      una conversación (en chat.php, y el hilo de la
                            ficha de la solicitud con data-solicitud).
@@ -74,12 +74,18 @@
     return (+p[2]) + ' de ' + MESES[+p[1] - 1] + (+p[0] !== hoy.getFullYear() ? ' de ' + p[0] : '');
   }
 
-  // ── Contador del encabezado ──────────────────────────────────────────
+  // ── Globito flotante de Mensajes ──────────────────────────────────────────
   var contador = document.querySelector('[data-chat-contador]');
   var tituloBase = document.title;
   function ponerContador(n) {
     if (!contador) return;
     var b = contador.querySelector('.chat-badge');
+    var antes = +b.textContent || 0;
+    if (n > antes) {                       // llegó algo nuevo: el globito late
+      contador.classList.remove('con-nuevos');
+      void contador.offsetWidth;
+      contador.classList.add('con-nuevos');
+    }
     b.textContent = n > 99 ? '99+' : String(n);
     b.hidden = n === 0;
     contador.title = n ? (n === 1 ? 'Una conversación con mensajes nuevos' : n + ' conversaciones con mensajes nuevos') : 'Mensajes';
@@ -657,7 +663,7 @@
   app.querySelector('[data-nuevo-grupo]').addEventListener('click', dlgGrupo);
   buscar.addEventListener('input', dibujarLista);
 
-  // La lista se actualiza sola (cada 10 s), y el contador del encabezado con ella.
+  // La lista se actualiza sola (cada 10 s), y el globito con ella.
   if (relojContador) relojContador.parar();
   cargarLista().then(function () {
     var p = new URLSearchParams(location.search);

@@ -22,10 +22,10 @@ A la izquierda están tus conversaciones, la más reciente arriba. Las que tiene
 
 **Otras cosas**
 
-- **Silenciar**: la conversación sigue llegando, pero no suma al número rojo del encabezado.
+- **Silenciar**: la conversación sigue llegando, pero no suma al número rojo del globito.
 - **Eliminar** (al pasar el mouse sobre un mensaje tuyo): los demás ven *Mensaje eliminado* y el archivo deja de estar disponible.
 - En las conversaciones de a dos, **✓✓** indica que la otra persona ya lo leyó.
-- El botón **Mensajes** del encabezado muestra cuántas conversaciones tienen algo sin leer. Se actualiza solo cada 20 segundos, en cualquier pantalla.
+- El globito **Mensajes** (abajo a la derecha, arriba de Ayuda) muestra cuántas conversaciones tienen algo sin leer. Se actualiza solo cada 20 segundos en cualquier pantalla y late cuando llega algo nuevo.
 - Tener la pantalla abierta no mantiene viva la sesión: si no usás el sistema, se cierra igual a las 8 horas.
 
 ## Mensajes de una solicitud

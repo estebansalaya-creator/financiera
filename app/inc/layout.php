@@ -53,13 +53,14 @@ function marca_logo(int $tam): string
 }
 
 /**
- * El botón Mensajes del encabezado, con cuántas conversaciones tienen algo
- * sin leer. assets/chat.js lo actualiza cada 20 segundos. Sin la opción
- * Mensajes, o sin las tablas todavía, no se dibuja.
+ * El globito flotante de Mensajes (arriba del de Ayuda), con cuántas
+ * conversaciones tienen algo sin leer. assets/chat.js lo actualiza cada 20
+ * segundos. Sin la opción Mensajes, sin las tablas todavía o en la misma
+ * pantalla Mensajes, no se dibuja.
  */
-function chat_boton_encabezado(): string
+function chat_boton_flotante(): string
 {
-    if (!usuario_id() || !puede('chat.php')) {
+    if (!usuario_id() || !puede('chat.php') || pagina_actual() === 'chat.php') {
         return '';
     }
     try {
@@ -70,8 +71,8 @@ function chat_boton_encabezado(): string
     } catch (Throwable $e) {
         return '';
     }
-    return '<a href="chat.php" class="header-boton header-chat' . (pagina_actual() === 'chat.php' ? ' activo' : '') . '" data-chat-contador="' . $n . '" title="Mensajes">'
-         . icono('mensaje', 14) . '<span class="hb-texto">Mensajes</span>'
+    return '<a id="btn-mensajes" href="chat.php" data-chat-contador="' . $n . '" title="Mensajes">'
+         . icono('mensaje') . '<span>Mensajes</span>'
          . '<span class="chat-badge"' . ($n ? '' : ' hidden') . '>' . ($n > 99 ? '99+' : $n) . '</span></a>';
 }
 
@@ -122,7 +123,6 @@ function layout_inicio(string $titulo, string $activo = ''): void
   <div class="header-spacer"></div>
   <button type="button" class="header-boton" data-instalar-app hidden title="Instalar la Financiera como app en este dispositivo"><?= icono('telefono', 14) ?><span class="hb-texto">Instalar app</span></button>
   <span class="header-fecha"><?= h(ucfirst($hoy)) ?></span>
-  <?= chat_boton_encabezado() ?>
   <?php if ($u): ?>
   <a href="mi_clave.php" class="header-user" title="<?= h($u['email'] . ($u['roles'] ? ' · ' . implode(', ', $u['roles']) : '')) ?> · Cambiar mi contraseña">
     <?= icono('usuario', 16) ?><span class="hb-texto"><?= h($u['nombre']) ?></span>
@@ -156,6 +156,7 @@ function layout_fin(): void
     ?>
 </main>
 </div>
+<?= chat_boton_flotante() ?>
 <?php if (usuario_id() && pagina_actual() !== 'ayuda.php'): ?>
 <a id="btn-ayuda" href="<?= h(url_ayuda()) ?>" title="Ayuda de esta pantalla (F1)" aria-keyshortcuts="F1"><?= icono('info') ?><span>Ayuda</span></a>
 <?php endif; ?>

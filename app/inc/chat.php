@@ -15,7 +15,7 @@ declare(strict_types=1);
 //   conversación.ultimo_mensaje_id (ver el .sql).
 //
 //   Llegada de mensajes: la pantalla consulta chat_api.php cada pocos
-//   segundos (con la conversación abierta) y el encabezado cada 20 (el
+//   segundos (con la conversación abierta) y el globito flotante cada 20 (el
 //   contador). Esas consultas no cuentan como actividad: no impiden que
 //   la sesión se cierre por inactividad (FIN_SIN_ACTIVIDAD en seguridad.php).
 // ---------------------------------------------------------------------
@@ -609,7 +609,7 @@ function chat_cuando(?string $dt): string
 }
 
 /**
- * Para el encabezado: cuántas conversaciones tienen algo sin leer (sin las
+ * Para el globito flotante: cuántas conversaciones tienen algo sin leer (sin las
  * silenciadas). Una consulta, por los índices de participantes y la PK de
  * conversaciones.
  */

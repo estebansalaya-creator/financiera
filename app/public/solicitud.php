@@ -582,7 +582,7 @@ if ($modoForm):
 </div>
 
 <div class="card" id="mensajes">
-  <?= card_head('Mensajes', 'los ven quien la cargó, el vendedor y quien la autoriza; avisan en el encabezado') ?>
+  <?= card_head('Mensajes', 'los ven quien la cargó, el vendedor y quien la autoriza; avisan en el globito de Mensajes') ?>
   <div class="chat-hilo-solicitud" data-chat-hilo data-solicitud="<?= $id ?>"></div>
 </div>
 
