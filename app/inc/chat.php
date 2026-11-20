@@ -545,15 +545,17 @@ function chat_marcar_leido(int $idConv, int $hasta): void
     }
 }
 
-/** En una directa, hasta qué mensaje leyó el otro (para las dos tildes). */
-function chat_leido_por_otro(array $c): int
+/**
+ * Hasta qué mensaje leyó cada uno de los demás participantes (para las
+ * tildes y el «Visto por»): [nombre, hasta]. En los hilos de solicitudes
+ * participan los que reciben aviso (ver chat_hilo_participantes).
+ */
+function chat_lectores(array $c): array
 {
-    if ($c['tipo'] !== 'DIRECTA') {
-        return 0;
-    }
-    $r = q1('SELECT ultimo_leido FROM chat_participantes WHERE id_conversacion = ? AND id_usuario <> ? LIMIT 1',
-            [(int) $c['id_conversacion'], usuario_id()]);
-    return $r ? (int) $r['ultimo_leido'] : 0;
+    return array_map(function (array $r) {
+        return ['nombre' => $r['nombre'], 'hasta' => (int) $r['ultimo_leido']];
+    }, q('SELECT u.nombre, p.ultimo_leido FROM chat_participantes p JOIN usuarios u ON u.id_usuario = p.id_usuario
+           WHERE p.id_conversacion = ? AND p.id_usuario <> ? ORDER BY u.nombre', [(int) $c['id_conversacion'], usuario_id()]));
 }
 
 // ---------------------------------------------------------------------

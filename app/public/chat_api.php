@@ -89,7 +89,7 @@ try {
                 if (get_str('leer') === '1' && $c['participante'] && $msjs) {
                     chat_marcar_leido($id, max(array_column($msjs, 'id')));
                 }
-                $datos = ['mensajes' => $msjs, 'leido_otro' => chat_leido_por_otro($c)];
+                $datos = ['mensajes' => $msjs, 'lectores' => chat_lectores($c)];
                 if ($desde === 0) {
                     // Al abrirla: los datos de la cabecera.
                     $datos['conv'] = [

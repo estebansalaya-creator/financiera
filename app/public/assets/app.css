@@ -946,7 +946,9 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
 .chat-texto { font-size: .86rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-borrado { color: var(--text-muted); font-style: italic; }
 .chat-hora { display: flex; justify-content: flex-end; align-items: center; gap: 8px; font-size: .66rem; color: var(--text-muted); margin-top: 2px; }
-.chat-visto { color: var(--blue); font-weight: 700; letter-spacing: -2px; }
+.chat-visto { color: var(--text-muted); font-weight: 700; letter-spacing: -2px; cursor: default; }
+.chat-visto.leido { color: var(--blue); }
+.chat-visto-por { align-self: flex-end; margin-top: -2px; font-size: .68rem; color: var(--text-muted); }
 .chat-retirar { display: none; border: 0; background: none; padding: 0; color: var(--danger-texto); font: inherit; cursor: pointer; }
 .chat-msj:hover .chat-retirar, .chat-msj:focus-within .chat-retirar { display: inline; }
 @media (hover: none) { .chat-retirar { display: inline; opacity: .7; } }
@@ -1079,3 +1081,47 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
   body:has([data-chat-app]) #btn-ayuda { display: none; }
 }
 .chat-dialogo { margin: auto; max-height: calc(100vh - 32px); overflow: auto; }
+
+/* ── 17. Panel general (panel.php) ──────────────────────────────────────── */
+.panel-rangos { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.panel-rango {
+  padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+  font-size: .76rem; font-weight: 600; color: var(--text-muted);
+}
+.panel-rango:hover { border-color: var(--blue); color: var(--blue); text-decoration: none; }
+.panel-rango.activo { background: var(--blue-light); border-color: var(--blue); color: var(--blue); }
+.panel-grilla { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; align-items: start; }
+.panel-grilla > .card { min-width: 0; }
+.panel-grilla .data-table.compacta { width: 100%; min-width: 0; }     /* en media columna, sin el mínimo de 560 px */
+.panel-grilla .data-table td:first-child { white-space: normal; }
+@media (max-width: 1100px) { .panel-grilla { grid-template-columns: 1fr; } }
+.panel-ahora ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: .86rem; }
+.panel-ahora .campo-ayuda { margin: 10px 0 0; }
+.panel-nota-cot { margin: -8px 0 14px; }
+.panel-monedas { display: flex; flex-direction: column; line-height: 1.25; }
+.panel-monedas span + span { font-size: .85em; }
+.data-table tr.td-muted td { color: var(--text-muted); }
+
+/* Gráfico: dos series de la misma escala ($), barras finas con la punta redondeada */
+.panel-grafico-wrap { position: relative; background: var(--surface); }
+.panel-grafico { display: block; width: 100%; height: auto; }
+.panel-grafico .pg-liq, .panel-leyenda .pg-liq { fill: #1a7ac2; background: #1a7ac2; }
+.panel-grafico .pg-cob, .panel-leyenda .pg-cob { fill: #eb6834; background: #eb6834; }
+.panel-grafico .pg-grilla { stroke: var(--border); stroke-width: 1; }
+.panel-grafico .pg-grilla.base { stroke: #b9c4d6; }
+.panel-grafico .pg-eje { fill: var(--text-muted); font-size: 11px; font-family: var(--font); font-variant-numeric: tabular-nums; }
+.panel-grafico .pg-hit { fill: transparent; cursor: crosshair; }
+.panel-grafico .pg-hit.activa { fill: rgba(26, 122, 194, .07); }
+.panel-leyenda { display: flex; gap: 16px; margin-bottom: 6px; font-size: .78rem; color: var(--text); }
+.panel-leyenda span { display: inline-flex; align-items: center; gap: 6px; }
+.panel-leyenda i, .panel-tip i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.panel-tip {
+  position: absolute; z-index: 5; pointer-events: none; min-width: 170px; padding: 8px 10px; border-radius: var(--radius-sm);
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg); font-size: .78rem; color: var(--text);
+}
+.panel-tip[hidden] { display: none; }
+.panel-tip strong { display: block; margin-bottom: 4px; color: var(--navy); }
+.panel-tip div { display: flex; align-items: center; gap: 6px; }
+.panel-tip b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.panel-tip .pg-liq { background: #1a7ac2; }
+.panel-tip .pg-cob { background: #eb6834; }

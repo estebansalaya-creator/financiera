@@ -194,7 +194,8 @@
     this.solicitud = op.solicitud || null;
     this.ultimo = 0;
     this.primero = 0;
-    this.leidoOtro = 0;
+    this.lectores = [];            // [{ nombre, hasta }] de los demás participantes
+    this.visible = !op.soloVisible;
     this.ultimaFecha = null;
     this.armar();
     this.cargar();
@@ -318,16 +319,21 @@
   Hilo.prototype.cargar = function () {
     var self = this;
     this.cargando = true;
-    return pedir(this.params({ leer: 1 })).then(function (d) {
+    return pedir(this.params({ leer: this.visible ? 1 : 0 })).then(function (d) {
       self.cuerpo.innerHTML = '';
       self.ultimaFecha = null;
       self.info = d.conv;
       if (d.conv) self.conv = d.conv.id;
-      self.leidoOtro = d.leido_otro || 0;
+      self.lectores = d.lectores || [];
       self.mas.hidden = !(d.conv && d.conv.hay_mas);
       self.agregar(d.mensajes, true);
       self.vacio.hidden = d.mensajes.length > 0;
+      self.marcarVistos();
       self.lista.scrollTop = self.lista.scrollHeight;
+      // Se pidió sin marcar leído (no estaba a la vista) y mientras tanto apareció: marcarlo ahora.
+      if (self.op.soloVisible && self.visible && self.conv && self.ultimo) {
+        pedir(null, { accion: 'leido', conv: self.conv, hasta: self.ultimo }).catch(function () {});
+      }
       if (self.op.alCambiar) self.op.alCambiar(d.conv);
       if (self.op.alLeer) self.op.alLeer();
     }).catch(function (e) { self.error(e.message); })
@@ -338,11 +344,13 @@
     if (this.cargando || (!this.conv && !this.solicitud)) return;
     if (!this.conv) return this.cargar();                 // hilo de solicitud todavía vacío: puede haber empezado otro
     var self = this, abajo = this.alFondo();
-    return pedir(this.params({ desde: this.ultimo, leer: document.hasFocus() ? 1 : 0, auto: 1 })).then(function (d) {
-      var antes = self.leidoOtro;
-      self.leidoOtro = d.leido_otro || 0;
-      if (antes !== self.leidoOtro) self.marcarVistos();
-      if (!d.mensajes.length) return;
+    return pedir(this.params({ desde: this.ultimo, leer: document.hasFocus() && self.visible ? 1 : 0, auto: 1 })).then(function (d) {
+      var antes = JSON.stringify(self.lectores);
+      self.lectores = d.lectores || [];
+      if (!d.mensajes.length) {
+        if (antes !== JSON.stringify(self.lectores)) self.marcarVistos();
+        return;
+      }
       var ajenos = d.mensajes.filter(function (m) { return !m.propio && !m.sistema; });
       if (ajenos.length) {
         var ult = ajenos[ajenos.length - 1].id;
@@ -350,9 +358,24 @@
       }
       self.vacio.hidden = true;
       self.agregar(d.mensajes, false);
+      self.marcarVistos();
       if (abajo) self.lista.scrollTop = self.lista.scrollHeight;
       if (self.op.alLeer) self.op.alLeer();
     });
+  };
+
+  /** Hilo que solo cuenta como leído cuando está a la vista (el de la ficha de la solicitud, al pie). */
+  Hilo.prototype.vigilarVisibilidad = function () {
+    var self = this;
+    if (!window.IntersectionObserver) { this.visible = true; return; }
+    new IntersectionObserver(function (es) {
+      var antes = self.visible;
+      self.visible = es.some(function (e) { return e.isIntersecting; });
+      if (self.visible && !antes && self.conv && self.ultimo) {
+        pedir(null, { accion: 'leido', conv: self.conv, hasta: self.ultimo })
+          .then(function () { if (self.op.alLeer) self.op.alLeer(); }).catch(function () {});
+      }
+    }, { threshold: 0.3 }).observe(this.lista);
   };
 
   Hilo.prototype.anteriores = function () {
@@ -434,12 +457,7 @@
       if (m.texto) b.appendChild(el('div', 'chat-texto' + (soloEmojis(m.texto) ? ' solo-emoji' : ''), m.texto));
     }
     var pie = el('div', 'chat-hora', m.hora);
-    if (m.propio && directa) {
-      var v = el('span', 'chat-visto', '✓✓');
-      v.title = 'Leído';
-      v.hidden = m.id > this.leidoOtro;
-      pie.appendChild(v);
-    }
+    if (m.propio && !m.borrado) pie.appendChild(el('span', 'chat-visto'));   // las tildes las pone marcarVistos
     if (m.propio && !m.borrado) {
       var x = el('button', 'chat-retirar', 'Eliminar');
       x.type = 'button';
@@ -456,12 +474,40 @@
     return b;
   };
 
+  /**
+   * Tildes de los mensajes propios: ✓ gris = enviado, nadie lo leyó todavía;
+   * ✓✓ azul = lo leyó (en grupos e hilos de solicitudes, al menos uno: al
+   * pasar el mouse dice quiénes). En grupos e hilos, además, debajo del
+   * último mensaje propio: «Visto por …».
+   */
   Hilo.prototype.marcarVistos = function () {
-    var lim = this.leidoOtro;
-    this.cuerpo.querySelectorAll('.chat-msj.propio').forEach(function (b) {
+    var lect = this.lectores, directa = this.info && this.info.tipo === 'DIRECTA';
+    var propios = this.cuerpo.querySelectorAll('.chat-msj.propio');
+    var viejo = this.cuerpo.querySelector('.chat-visto-por');
+    if (viejo) viejo.remove();
+    propios.forEach(function (b) {
       var v = b.querySelector('.chat-visto');
-      if (v) v.hidden = +b.getAttribute('data-id') > lim;
+      if (!v) return;
+      var id = +b.getAttribute('data-id');
+      var leyeron = lect.filter(function (l) { return l.hasta >= id; });
+      var todos = lect.length > 0 && leyeron.length === lect.length;
+      v.className = 'chat-visto' + (leyeron.length ? ' leido' : '');
+      v.textContent = leyeron.length ? '✓✓' : '✓';
+      v.title = !leyeron.length ? 'Enviado: todavía no lo leyó nadie'
+              : directa ? 'Leído'
+              : todos ? 'Leído por todos' : 'Leído por ' + leyeron.map(function (l) { return l.nombre; }).join(', ');
     });
+    if (directa || !propios.length) return;
+    var ult = propios[propios.length - 1], uid = +ult.getAttribute('data-id');
+    var vieron = lect.filter(function (l) { return l.hasta >= uid; });
+    if (!vieron.length) return;
+    var nombres = vieron.map(function (l) { return l.nombre.split(' ')[0]; });
+    var txt = vieron.length === lect.length && lect.length > 1 ? 'Visto por todos'
+            : 'Visto por ' + (nombres.length > 3 ? nombres.slice(0, 3).join(', ') + ' y ' + (nombres.length - 3) + ' más'
+                                                 : nombres.slice(0, -1).join(', ') + (nombres.length > 1 ? ' y ' : '') + nombres[nombres.length - 1]);
+    var vp = el('div', 'chat-visto-por', txt);
+    vp.title = vieron.map(function (l) { return l.nombre; }).join(', ');
+    ult.after(vp);
   };
 
   // ── Emojis ───────────────────────────────────────────────────────────
@@ -691,8 +737,9 @@
 
   // Hilos sueltos (ficha de la solicitud)
   document.querySelectorAll('[data-chat-hilo]').forEach(function (r) {
-    new Hilo(r, { solicitud: +r.getAttribute('data-solicitud') || null, conv: +r.getAttribute('data-conv') || null, cada: 5000,
+    var h = new Hilo(r, { solicitud: +r.getAttribute('data-solicitud') || null, conv: +r.getAttribute('data-conv') || null, cada: 5000, soloVisible: true,
                   alLeer: function () { if (relojContador) relojContador.ya(); } });
+    h.vigilarVisibilidad();
   });
 
   // ── La pantalla Mensajes ─────────────────────────────────────────────
