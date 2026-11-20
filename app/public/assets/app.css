@@ -458,6 +458,9 @@ fieldset.bloque { border: 0; border-bottom: 1px solid var(--border); margin: 0; 
 .campo-check input { width: 16px; height: 16px; flex: none; }
 .campo > label.campo-check { font-size: .86rem; font-weight: 400; color: var(--text); text-transform: none; letter-spacing: 0; }
 .campo-boton { justify-content: flex-end; align-items: flex-start; }
+/* Botón al lado de un campo que tiene ayuda abajo (Buscar cliente): a la altura del campo, no de la ayuda */
+.campo-boton.arriba { justify-content: flex-start; }
+@media (max-width: 560px) { .campo-boton.arriba > .campo-label { display: none; } }   /* abajo del campo, sin el renglón vacío */
 .form-acciones { display: flex; gap: 10px; justify-content: flex-end; padding: 14px 20px; border-top: 1px solid var(--border); }
 .radios { display: flex; gap: 6px; }
 .radios label {
@@ -605,6 +608,17 @@ a.page-btn:hover { text-decoration: none; border-color: var(--blue); color: var(
 .controles-motivo { margin: 10px 0 0; font-size: .84rem; }
 .campo-fijo { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; min-height: 36px; font-size: .9rem; }
 .campo-cambiar { font-size: .76rem; }
+/* Solicitud: coincidencias de la búsqueda de cliente por nombre */
+.cli-candidatos { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 6px; }
+.cli-candidato {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; font-size: .84rem;
+}
+.cli-candidato:hover, .cli-candidato:focus-visible { border-color: var(--blue); background: var(--blue-light); outline: none; }
+.cli-candidato-nom { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cli-candidato-nom strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cli-candidato-nom small { color: var(--text-muted); font-size: .72rem; }
+.cli-candidato .mono { font-size: .78rem; color: var(--text-muted); white-space: nowrap; }
 .data-table tbody tr.fila-vencida td { background: var(--danger-bg); }
 
 /* ── Cobranzas ─────────────────────────────────────────────────────────── */
@@ -856,6 +870,25 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
 .chat-lado-head { flex-wrap: wrap; }
 .chat-lado-acc { display: flex; gap: 6px; align-items: center; margin-left: auto; }
 .chat-buscar { margin: 0 12px 8px; }
+.chat-tabs { display: flex; margin: 0 12px 10px; border-bottom: 1px solid var(--border); }
+.chat-tabs button {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 8px 8px;
+  border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; cursor: pointer;
+  font: inherit; font-size: .82rem; font-weight: 600; color: var(--text-muted);
+}
+.chat-tabs button:hover { color: var(--navy); }
+.chat-tabs button[aria-selected="true"] { color: var(--blue); border-bottom-color: var(--blue); }
+.chat-sol-estado { font-size: .64rem; padding: 1px 7px; flex-shrink: 0; }
+.chat-subtabs { display: flex; flex-wrap: wrap; gap: 4px; margin: -2px 12px 10px; }
+.chat-subtabs[hidden] { display: none; }
+.chat-subtabs button {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); font: inherit; font-size: .72rem; font-weight: 600;
+}
+.chat-subtabs button:hover { border-color: var(--blue); color: var(--blue); }
+.chat-subtabs button[aria-pressed="true"] { background: var(--blue-light); border-color: var(--blue); color: var(--blue); }
+.chat-subtab-n { font-family: var(--mono); font-size: .66rem; font-weight: 500; opacity: .85; }
+.chat-subtabs .chat-badge { min-width: 15px; height: 15px; font-size: .6rem; padding: 0 4px; }
 .chat-convs { list-style: none; margin: 0; padding: 0 6px 8px; overflow-y: auto; flex: 1; }
 .chat-conv {
   display: flex; gap: 10px; align-items: center; padding: 9px 8px; border-radius: var(--radius-sm); color: var(--text);

@@ -93,7 +93,18 @@ function sol_cargar(int $id): ?array
                 WHERE s.id_solicitud = ? AND $w", array_merge([$id], $p));
 }
 
-/** Cliente (con lo que piden los controles) por id, o por CUIT / CUIL / DNI escrito. */
+/** Hasta cuántos clientes se listan al buscar por nombre (se piden uno más para saber si hay más). */
+const SOL_CLIENTES_MAX = 20;
+
+/**
+ * Cliente (con lo que piden los controles) por id, por CUIT / CUIL / DNI
+ * escrito, o por nombre: con letras, cada palabra tiene que estar en la
+ * razón social o el nombre de fantasía, en cualquier orden («perez juan»
+ * encuentra «Pérez, Juan Carlos»; la base no distingue acentos). Por nombre
+ * un vendedor ve solo su cartera (los clientes de su vendedor, los que cargó
+ * él y los que ya tienen una solicitud suya); con el CUIT o el DNI, como
+ * siempre, cualquiera.
+ */
 function sol_buscar_cliente(string $id, string $txt): array
 {
     $sql = 'SELECT c.*, cp.ingreso_mensual, cp.dni FROM clientes c LEFT JOIN clientes_personas cp ON cp.id_cliente = c.id_cliente ';
@@ -106,6 +117,28 @@ function sol_buscar_cliente(string $id, string $txt): array
     }
     if (strlen($d) >= 7 && strlen($d) <= 8) {
         return q($sql . 'WHERE cp.dni = ? OR SUBSTRING(c.cuit, 3, 8) = LPAD(?, 8, \'0\')', [$d, $d]);
+    }
+    $txt = trim($txt);
+    if (preg_match('/\p{L}/u', $txt) && preg_match_all('/./su', $txt) >= 3) {
+        $w = [];
+        $p = [];
+        foreach (array_slice(preg_split('/[\s,]+/u', $txt, -1, PREG_SPLIT_NO_EMPTY), 0, 6) as $pal) {
+            $like = '%' . addcslashes($pal, '%_\\') . '%';
+            $w[] = '(c.denominacion LIKE ? OR ce.nombre_fantasia LIKE ?)';
+            array_push($p, $like, $like);
+        }
+        if (!sol_ve_todas()) {
+            // Su cartera: los clientes de su vendedor, los que cargó y aquellos a los que ya les cargó una solicitud.
+            $vend = (int) sol_vendedor_propio();
+            $w[] = '(c.id_vendedor = ? OR c.creado_por = ?
+                     OR EXISTS (SELECT 1 FROM solicitudes s WHERE s.id_cliente = c.id_cliente AND (s.creado_por = ? OR s.id_vendedor = ?)))';
+            array_push($p, $vend, usuario_id(), usuario_id(), $vend);
+        }
+        return q('SELECT c.*, cp.ingreso_mensual, cp.dni, ce.nombre_fantasia FROM clientes c
+                    LEFT JOIN clientes_personas cp ON cp.id_cliente = c.id_cliente
+                    LEFT JOIN clientes_empresas ce ON ce.id_cliente = c.id_cliente
+                   WHERE ' . implode(' AND ', $w) . '
+                   ORDER BY c.estado = \'ACTIVO\' DESC, c.denominacion LIMIT ' . (SOL_CLIENTES_MAX + 1), $p);
     }
     return [];
 }

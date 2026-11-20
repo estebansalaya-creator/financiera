@@ -10,6 +10,10 @@ require __DIR__ . '/../inc/chat.php';
 // en las que participás. Todo lo dinámico lo arma assets/chat.js contra
 // chat_api.php; esta página solo dibuja el marco.
 //   chat.php?c=N      abre esa conversación
+//   Dos solapas: Chats (directas y grupos) y Solicitudes (los hilos de las
+//   solicitudes), y en Solicitudes, por estado: Todas, Pendientes,
+//   Observadas, Aprobadas y Cerradas. Lo último elegido queda recordado en
+//   el navegador.
 //   chat.php?para=N   abre (o empieza) la conversación con ese usuario
 //   &volver=pantalla  adónde lleva Cerrar (la pone el globito flotante)
 // ---------------------------------------------------------------------
@@ -45,6 +49,13 @@ if ($error) {
         <a class="btn-accion chat-cerrar" href="<?= h($volver) ?>" data-chat-salir title="Cerrar Mensajes y volver" aria-label="Cerrar Mensajes y volver"><?= icono('cerrar') ?></a>
       </div>
     </div>
+    <?php if (chat_ve_solicitudes()): ?>
+    <div class="chat-tabs" role="tablist" data-tabs>
+      <button type="button" role="tab" data-tab="chats" aria-selected="true">Chats <span class="chat-badge" hidden></span></button>
+      <button type="button" role="tab" data-tab="solicitudes" aria-selected="false">Solicitudes <span class="chat-badge" hidden></span></button>
+    </div>
+    <div class="chat-subtabs" data-subtabs hidden></div>
+    <?php endif; ?>
     <div class="menu-buscar chat-buscar">
       <?= icono('buscar', 13) ?>
       <input type="search" data-buscar placeholder="Buscar conversación…" autocomplete="off" aria-label="Buscar conversación">

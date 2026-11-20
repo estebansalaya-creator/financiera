@@ -713,12 +713,97 @@
 
   function norm(s) { return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
 
+  // ── Solapas: Chats (directas y grupos) y Solicitudes (hilos) ─────────
+  var tabs = app.querySelector('[data-tabs]');
+  var CLAVE_TAB = 'fin_chat_tab';
+  var tab = tabs && leerLS(CLAVE_TAB) === 'solicitudes' ? 'solicitudes' : 'chats';
+  var ESTADOS_SOL = { PENDIENTE: ['Pendiente', 'info'], OBSERVADA: ['Observada', 'warn'], APROBADA: ['Aprobada', 'ok'],
+                      RECHAZADA: ['Rechazada', 'danger'], LIQUIDADA: ['Liquidada', 'neutro'], ANULADA: ['Anulada', 'neutro'] };
+  function deLaSolapa(c, t) { return (c.tipo === 'SOLICITUD') === ((t || tab) === 'solicitudes'); }
+
+  // Dentro de Solicitudes, por estado. Un hilo cambia solo de grupo cuando la solicitud cambia de estado.
+  var GRUPOS_SOL = [['todas', 'Todas', null], ['pend', 'Pendientes', ['PENDIENTE']], ['obs', 'Observadas', ['OBSERVADA']],
+                    ['apr', 'Aprobadas', ['APROBADA']], ['cerr', 'Cerradas', ['LIQUIDADA', 'RECHAZADA', 'ANULADA']]];
+  var CLAVE_SUBTAB = 'fin_chat_subtab';
+  var subtabs = app.querySelector('[data-subtabs]');
+  var subtab = leerLS(CLAVE_SUBTAB) || 'todas';
+  function grupoSol(id) { return GRUPOS_SOL.filter(function (g) { return g[0] === id; })[0] || GRUPOS_SOL[0]; }
+  function grupoDeEstado(estado) {
+    return GRUPOS_SOL.filter(function (g) { return g[2] && g[2].indexOf(estado) !== -1; })[0] || GRUPOS_SOL[0];
+  }
+  function delGrupo(c, id) { var g = grupoSol(id || subtab); return !g[2] || g[2].indexOf(c.estado) !== -1; }
+  function ponerGrupo(id, guardar) {
+    subtab = grupoSol(id)[0];
+    if (guardar) guardarLS(CLAVE_SUBTAB, subtab);
+    dibujarLista();
+  }
+  if (subtabs) {
+    GRUPOS_SOL.forEach(function (g) {
+      var b = el('button', null);
+      b.type = 'button';
+      b.setAttribute('data-grupo', g[0]);
+      b.appendChild(el('span', null, g[1]));
+      b.appendChild(el('small', 'chat-subtab-n'));
+      var badge = el('span', 'chat-badge');
+      badge.hidden = true;
+      b.appendChild(badge);
+      b.addEventListener('click', function () { ponerGrupo(g[0], true); });
+      subtabs.appendChild(b);
+    });
+  }
+  function marcarSolapa() {
+    tabs.querySelectorAll('[data-tab]').forEach(function (b) { b.setAttribute('aria-selected', b.getAttribute('data-tab') === tab ? 'true' : 'false'); });
+    buscar.placeholder = tab === 'solicitudes' ? 'Buscar por número o cliente…' : 'Buscar conversación…';
+  }
+  function ponerSolapa(t, guardar) {
+    if (!tabs || t === tab && !guardar) return;
+    tab = t;
+    if (guardar) guardarLS(CLAVE_TAB, t);
+    marcarSolapa();
+    dibujarLista();
+  }
+  function contarSolapas() {
+    if (!tabs) return;
+    if (subtabs) {
+      subtabs.hidden = tab !== 'solicitudes';
+      var sols = convs.filter(function (c) { return c.tipo === 'SOLICITUD'; });
+      GRUPOS_SOL.forEach(function (g) {
+        var b = subtabs.querySelector('[data-grupo="' + g[0] + '"]');
+        var de = sols.filter(function (c) { return delGrupo(c, g[0]); });
+        var nl = de.filter(function (c) { return c.no_leidos && !c.silenciada; }).length;
+        b.setAttribute('aria-pressed', g[0] === subtab ? 'true' : 'false');
+        b.querySelector('.chat-subtab-n').textContent = de.length ? String(de.length) : '';
+        var badge = b.querySelector('.chat-badge');
+        badge.textContent = String(nl);
+        badge.hidden = nl === 0;
+      });
+    }
+    ['chats', 'solicitudes'].forEach(function (t) {
+      var n = convs.filter(function (c) { return deLaSolapa(c, t) && c.no_leidos && !c.silenciada; }).length;
+      var b = tabs.querySelector('[data-tab="' + t + '"] .chat-badge');
+      b.textContent = n > 99 ? '99+' : String(n);
+      b.hidden = n === 0;
+    });
+  }
+  if (tabs) {
+    marcarSolapa();                                  // la que quedó elegida la vez anterior
+    tabs.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tab]');
+      if (b) ponerSolapa(b.getAttribute('data-tab'), true);
+    });
+  }
+
   function dibujarLista() {
     var f = norm(buscar.value.trim());
     ulConvs.innerHTML = '';
-    var vis = convs.filter(function (c) { return !f || norm(c.titulo + ' ' + c.ultimo).indexOf(f) !== -1; });
+    var deTab = convs.filter(function (c) { return !tabs || deLaSolapa(c) && (tab !== 'solicitudes' || delGrupo(c)); });
+    var vis = deTab.filter(function (c) { return !f || norm(c.titulo + ' ' + c.ultimo).indexOf(f) !== -1; });
+    contarSolapas();
     if (!vis.length) {
-      ulConvs.appendChild(el('li', 'chat-lista-vacia', convs.length ? 'Ninguna conversación coincide.' : 'Todavía no tenés conversaciones. Empezá una con «Nuevo».'));
+      ulConvs.appendChild(el('li', 'chat-lista-vacia', deTab.length ? 'Ninguna conversación coincide.'
+        : (tab === 'solicitudes' && subtab !== 'todas' ? 'No hay hilos de solicitudes ' + grupoSol(subtab)[1].toLowerCase() + '.'
+        : tab === 'solicitudes' ? 'Todavía no participás de ningún hilo de solicitud. Se escribe desde la ficha de la solicitud, en la tarjeta Mensajes.'
+                                 : 'Todavía no tenés conversaciones. Empezá una con «Nuevo».')));
       return;
     }
     vis.forEach(function (c) {
@@ -730,11 +815,12 @@
       a.appendChild(ico);
       var t = el('span', 'chat-conv-txt');
       var l1 = el('span', 'chat-conv-l1');
-      l1.appendChild(el('strong', null, c.titulo + (c.inactivo ? ' (de baja)' : '')));
+      l1.appendChild(el('strong', null, c.tipo === 'SOLICITUD' && tabs ? c.nro + ' · ' + c.cliente : c.titulo + (c.inactivo ? ' (de baja)' : '')));
       l1.appendChild(el('small', null, c.cuando));
       t.appendChild(l1);
       var l2 = el('span', 'chat-conv-l2');
       l2.appendChild(el('span', null, c.ultimo || ' '));
+      if (c.tipo === 'SOLICITUD' && ESTADOS_SOL[c.estado]) l2.appendChild(el('span', 'estado estado-' + ESTADOS_SOL[c.estado][1] + ' chat-sol-estado', ESTADOS_SOL[c.estado][0]));
       if (c.silenciada) l2.appendChild(el('span', 'chat-silencio', '🔕'));
       if (c.no_leidos) l2.appendChild(el('span', 'chat-badge', c.no_leidos > 99 ? '99+' : String(c.no_leidos)));
       t.appendChild(l2);
@@ -844,7 +930,19 @@
     dibujarCabecera(null);
     hilo = new Hilo(zona, {
       conv: id, para: para, cada: 3000,
-      alCambiar: function (info) { if (info) { actual = info.id; dibujarCabecera(info); history.replaceState(null, '', '?c=' + info.id); } },
+      alCambiar: function (info) {
+        if (info) {
+          actual = info.id;
+          if (info.tipo === 'SOLICITUD') {
+            var cv = convs.filter(function (c) { return c.id === info.id; })[0];
+            if (cv && !delGrupo(cv)) subtab = grupoDeEstado(cv.estado)[0];
+          }
+          ponerSolapa(info.tipo === 'SOLICITUD' ? 'solicitudes' : 'chats', false);
+          dibujarLista();
+          dibujarCabecera(info);
+          history.replaceState(null, '', '?c=' + info.id);
+        }
+      },
       alLeer: function () { cargarLista(); },
       alEnviar: function () { cargarLista(); }
     });

@@ -26,7 +26,7 @@ Si un producto no tiene una tasa vigente para ese plazo y monto, no se puede sim
 
 **Cargar una solicitud** (también desde la ficha del cliente, *Nueva solicitud*):
 
-1. Cliente: CUIT, CUIL o DNI y **Buscar**. Si es nuevo, primero se da de alta en *Clientes*.
+1. Cliente: nombre (o parte, al menos 3 letras), CUIT, CUIL o DNI y **Buscar** (o Enter). Si hay una sola coincidencia queda elegido; si hay varias, aparece la lista y se hace click en el que es. Por nombre, un vendedor encuentra los clientes de su cartera (los suyos, los que cargó y los que ya tienen una solicitud suya); con el CUIT, CUIL o DNI, cualquiera. Si es nuevo, primero se da de alta en *Clientes*.
 2. Producto, monto que pide y cuotas. Vendedor (un vendedor carga siempre a su nombre), **Telemarketing** si la venta vino por ahí, destino del préstamo y observaciones para quien autoriza.
 3. **Revisar**: muestra la cuota estimada (liquidando hoy), los controles y la documentación.
 4. **Enviar a autorización**. Queda *Pendiente* con su número (`S-000001`…). Con advertencias se puede enviar igual: quien autoriza las ve. Con un control en rojo, no.

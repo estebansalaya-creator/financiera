@@ -7,7 +7,7 @@ Mensajes internos entre los usuarios del sistema: de a dos, en grupos y en el hi
 <!-- pantallas: chat.php -->
 <!-- resumen: Escribirle a alguien, armar un grupo, mandar archivos y ver lo que no leíste. -->
 
-A la izquierda están tus conversaciones, la más reciente arriba. Las que tienen algo sin leer se ven en negrita, con la cantidad en rojo.
+A la izquierda están tus conversaciones, la más reciente arriba, en dos solapas: **Chats** (de a dos y grupos) y **Solicitudes** (los hilos de las solicitudes, con su número, cliente y estado). En **Solicitudes** se filtran por estado: **Todas**, **Pendientes**, **Observadas**, **Aprobadas** y **Cerradas** (liquidadas, rechazadas y anuladas), con cuántas hay y cuántas tienen algo sin leer; un hilo pasa solo de un grupo a otro cuando la solicitud cambia de estado. Las que tienen algo sin leer se ven en negrita, con la cantidad en rojo; cada solapa muestra cuántas tiene. La solapa que elegiste queda para la próxima vez.
 
 1. **Nuevo**: buscá a la persona por nombre o rol y elegila. Se abre la conversación con ella.
 2. Escribí y apretá **Enter** (o **Enviar**). **Shift + Enter** baja de renglón.
@@ -52,4 +52,4 @@ Cada solicitud tiene su propio hilo, al pie de la ficha (tarjeta **Mensajes**). 
 
 - Lo ve y escribe todo el que puede abrir la solicitud.
 - Cuando alguien escribe, avisa a quien la cargó, al vendedor y, mientras está pendiente, a quienes pueden autorizar. Una vez resuelta, a quien la resolvió. El que escribe en el hilo también queda avisado de lo que siga.
-- El hilo también aparece en la pantalla **Mensajes**, con un enlace a la solicitud.
+- El hilo también aparece en la pantalla **Mensajes**, en la solapa **Solicitudes**, con un enlace a la solicitud.

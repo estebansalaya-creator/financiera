@@ -574,7 +574,7 @@ function chat_lista(): array
                          WHERE o.id_conversacion = c.id_conversacion AND o.id_usuario <> p.id_usuario LIMIT 1) AS otro,
                        (SELECT u.activo FROM chat_participantes o JOIN usuarios u ON u.id_usuario = o.id_usuario
                          WHERE o.id_conversacion = c.id_conversacion AND o.id_usuario <> p.id_usuario LIMIT 1) AS otro_activo,
-                       s.nro_solicitud, cl.denominacion,
+                       s.nro_solicitud, s.estado AS sol_estado, cl.denominacion,
                        m.texto AS ult_texto, m.adjunto_nombre AS ult_adjunto, m.adjunto_mime AS ult_mime, m.borrado_el AS ult_borrado,
                        " . (columna_existe('chat_mensajes', 'llamada_url') ? 'm.llamada_url' : 'NULL') . " AS ult_llamada,
                        m.id_usuario AS ult_uid, um.nombre AS ult_autor,
@@ -631,6 +631,9 @@ function chat_lista(): array
             'titulo'    => $titulo,
             'inactivo'  => $f['tipo'] === 'DIRECTA' && $f['otro_activo'] !== null && !(int) $f['otro_activo'],
             'solicitud' => $f['id_solicitud'] !== null ? (int) $f['id_solicitud'] : null,
+            'nro'       => $f['nro_solicitud'],
+            'cliente'   => $f['denominacion'],
+            'estado'    => $f['sol_estado'],
             'ultimo'    => substr_utf8(preg_replace('/\s+/u', ' ', $ult) ?? '', 90),
             'cuando'    => chat_cuando($f['ultimo_mensaje_el']),
             'no_leidos' => (int) $f['no_leidos'],

@@ -132,6 +132,7 @@ if ($sol && !$modoForm && es_post()) {
 // Formulario: nueva o modificar
 // =====================================================================
 $cliente = null;
+$candidatos = [];          // búsqueda por nombre con varias coincidencias: se elige de la lista
 $res = null;
 $cuadro = [];
 $ctl = [];
@@ -146,6 +147,11 @@ if ($modoForm) {
     $campos = ['cliente', 'buscar', 'producto', 'monto', 'plazo', 'vendedor', 'telemarketing', 'destino', 'observaciones', 'comentario'];
     foreach ($campos as $c) {
         $f[$c] = es_post() ? post_str($c) : get_str($c);
+    }
+    $elegido = es_post() ? (int) post_str('elegir') : 0;           // de la lista de coincidencias
+    if (!$sol && $elegido > 0) {
+        $f['cliente'] = (string) $elegido;
+        $f['buscar'] = '';
     }
     if ($sol) {
         $f['cliente'] = (string) $sol['id_cliente'];                 // el cliente de una solicitud no se cambia
@@ -177,9 +183,15 @@ if ($modoForm) {
                     $f['vendedor'] = (string) $cliente['id_vendedor'];
                 }
             } elseif (count($encontrados) > 1) {
-                $errores[] = 'Hay más de un cliente con ese DNI: buscalo por CUIT/CUIL.';
+                $candidatos = $encontrados;
+                $f['cliente'] = '';
             } elseif (es_post() || $f['buscar'] !== '') {
-                $errores[] = 'No hay un cliente con ' . ($f['buscar'] !== '' ? '«' . $f['buscar'] . '»' : 'ese número') . '. Si es nuevo, dalo de alta primero en Clientes.';
+                $porNombre = (bool) preg_match('/\p{L}/u', $f['buscar']);
+                $errores[] = $porNombre && preg_match_all('/./su', trim($f['buscar'])) < 3
+                    ? 'Para buscar por nombre escribí al menos 3 letras.'
+                    : 'No hay un cliente con ' . ($f['buscar'] !== '' ? '«' . $f['buscar'] . '»' : 'ese número')
+                      . ($porNombre && !sol_ve_todas() ? ' entre tus clientes (por nombre se buscan los de tu cartera; con el CUIT, CUIL o DNI, todos)' : '')
+                      . '. Si es nuevo, dalo de alta primero en Clientes.';
             }
         }
         if ($vendPropio) {
@@ -368,13 +380,30 @@ if ($modoForm):
         <?php else: ?>
           <div class="campo" style="--span:4">
             <label for="buscar">Cliente <span class="req">*</span></label>
-            <input id="buscar" name="buscar" value="<?= h($f['buscar']) ?>" class="mono" inputmode="numeric" placeholder="CUIT, CUIL o DNI" autofocus>
+            <input id="buscar" name="buscar" value="<?= h($f['buscar']) ?>" placeholder="Nombre, CUIT, CUIL o DNI" autocomplete="off" autofocus>
             <?php if ($verCliente): ?><span class="campo-ayuda">¿Es nuevo? <a href="cliente.php">Dalo de alta</a> y volvé.</span><?php endif; ?>
           </div>
-          <div class="campo campo-boton" style="--span:1">
+          <div class="campo campo-boton arriba" style="--span:1">
             <span class="campo-label">&nbsp;</span>
             <button type="submit" name="accion" value="buscar" class="btn btn-secondary" formnovalidate>Buscar</button>
           </div>
+          <?php if ($candidatos): ?>
+          <div class="campo" style="--span:12">
+            <span class="campo-label">Elegí el cliente · <?= count($candidatos) > SOL_CLIENTES_MAX
+                ? 'hay más de ' . SOL_CLIENTES_MAX . ': escribí más del nombre o buscalo por CUIT'
+                : count($candidatos) . ' coincidencias' ?></span>
+            <div class="cli-candidatos">
+              <?php foreach (array_slice($candidatos, 0, SOL_CLIENTES_MAX) as $cc): ?>
+              <button type="submit" name="elegir" value="<?= (int) $cc['id_cliente'] ?>" class="cli-candidato" formnovalidate>
+                <span class="cli-candidato-nom"><strong><?= h($cc['denominacion']) ?></strong>
+                  <?= !empty($cc['nombre_fantasia']) && $cc['nombre_fantasia'] !== $cc['denominacion'] ? '<small>' . h($cc['nombre_fantasia']) . '</small>' : '' ?></span>
+                <span class="mono"><?= h(cuit_fmt($cc['cuit'])) ?></span>
+                <?= $cc['estado'] !== 'ACTIVO' ? estado(ucfirst(strtolower($cc['estado'])), 'danger') : '' ?>
+              </button>
+              <?php endforeach; ?>
+            </div>
+          </div>
+          <?php endif; ?>
         <?php endif; ?>
         <div class="campo" style="--span:4">
           <label for="producto">Producto <span class="req">*</span></label>
