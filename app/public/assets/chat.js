@@ -143,6 +143,7 @@
       '<div class="chat-fila">' +
       '<label class="btn btn-ghost chat-clip" title="Adjuntar archivo (PDF, imagen, Word, Excel)"><input type="file" hidden accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt,image/*,application/pdf">' +
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg></label>' +
+      '<button type="button" class="btn btn-ghost chat-emoji-btn" title="Emojis" aria-label="Emojis" aria-expanded="false">😊</button>' +
       '<textarea rows="1" maxlength="4000" placeholder="Escribí un mensaje…" title="Enter envía · Shift+Enter baja de renglón" aria-label="Mensaje"></textarea>' +
       '<button type="submit" class="btn btn-primary chat-enviar" title="Enviar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg><span>Enviar</span></button>' +
       '</div>';
@@ -151,6 +152,8 @@
     this.file = f.querySelector('input[type=file]');
     this.err = f.querySelector('.chat-error');
     this.chipArchivo = f.querySelector('.chat-archivo');
+    this.btnEmoji = f.querySelector('.chat-emoji-btn');
+    this.btnEmoji.addEventListener('click', function () { self.emojis(); });
 
     this.txt.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); self.enviar(); }
@@ -309,7 +312,7 @@
         }
         b.appendChild(a);
       }
-      if (m.texto) b.appendChild(el('div', 'chat-texto', m.texto));
+      if (m.texto) b.appendChild(el('div', 'chat-texto' + (soloEmojis(m.texto) ? ' solo-emoji' : ''), m.texto));
     }
     var pie = el('div', 'chat-hora', m.hora);
     if (m.propio && directa) {
@@ -342,6 +345,100 @@
     });
   };
 
+  // ── Emojis ───────────────────────────────────────────────────────────
+  var EMOJIS = [
+    ['😊', 'Caras', '😀 😃 😄 😁 😆 😅 😂 🤣 😊 🙂 😉 😇 🥰 😍 😘 😋 😜 🤪 😎 🤓 🥳 🤩 🤗 🤭 🫡 🤔 🤨 😐 😑 🙄 😏 😬 😮 😲 😳 🥺 😢 😭 😓 😩 😫 😤 😡 🤯 😱 😴 🤒 🤧 😷 🙃'],
+    ['👍', 'Gestos', '👍 👎 👌 ✌️ 🤞 🤝 🙏 👏 🙌 💪 👋 ☝️ 👉 👈 👆 👇 ✋ 🤙 🫶 ✍️ 👀 🤷 🤦 🙋 🙅 🙆'],
+    ['💼', 'Trabajo', '💰 💵 💲 💳 🏦 📈 📉 📊 📄 📋 📎 📁 🗂️ 📅 📆 ⏰ ⏳ ✉️ 📧 📞 📱 💻 🖨️ ✏️ 📝 🔒 🔑 🏢 🏠 🚗 ☕ 🍕 🎂 🎉 🎁 🏆'],
+    ['✅', 'Símbolos', '✅ ❌ ⚠️ ❗ ❓ ‼️ ✔️ ✖️ ➕ ➖ 🔴 🟠 🟡 🟢 🔵 ⭐ 🔥 💯 ❤️ 💙 💚 🆗 🆕 ➡️ ⬅️ ⬆️ ⬇️ 🔄 ⏸️']
+  ];
+  var EMOJI_FRECUENTES = '👍 🙏 😊 😂 ✅ 👌 🙌 👏 ❤️ 🎉 💪 👀'.split(' ');
+  var CLAVE_RECIENTES = 'fin_chat_emojis';
+
+  function recientes() {
+    try { var r = JSON.parse(localStorage.getItem(CLAVE_RECIENTES) || '[]'); if (Array.isArray(r) && r.length) return r; } catch (e) {}
+    return EMOJI_FRECUENTES;
+  }
+  function guardarReciente(em) {
+    var r = recientes().filter(function (x) { return x !== em; });
+    r.unshift(em);
+    try { localStorage.setItem(CLAVE_RECIENTES, JSON.stringify(r.slice(0, 24))); } catch (e) {}
+  }
+
+  /** Mensaje de 1 a 3 emojis y nada más: se muestra grande. */
+  var RE_SOLO_EMOJI = null;
+  try { RE_SOLO_EMOJI = new RegExp('^(?:\\p{Extended_Pictographic}|[\\u{1F3FB}-\\u{1F3FF}\\u{1F1E6}-\\u{1F1FF}]|\\u200d|\\ufe0f|\\s)+$', 'u'); } catch (e) {}
+  function soloEmojis(t) {
+    if (!RE_SOLO_EMOJI || !RE_SOLO_EMOJI.test(t)) return false;
+    var n = 0;
+    if (window.Intl && Intl.Segmenter) {
+      var it = new Intl.Segmenter('es', { granularity: 'grapheme' }).segment(t.replace(/\s+/g, ''));
+      for (var x = it[Symbol.iterator](), r = x.next(); !r.done; r = x.next()) n++;
+    } else {
+      n = (t.match(/\p{Extended_Pictographic}/gu) || []).length;
+    }
+    return n > 0 && n <= 3;
+  }
+
+  /** Abre o cierra el selector. Elegir uno lo inserta donde está el cursor (y queda abierto para poner otro). */
+  Hilo.prototype.emojis = function (cerrar) {
+    var self = this;
+    if (!this.selector) {
+      var sel = el('div', 'chat-emojis');
+      sel.hidden = true;
+      sel.setAttribute('role', 'dialog');
+      sel.setAttribute('aria-label', 'Emojis');
+      var tabs = el('div', 'chat-emojis-tabs');
+      var grilla = el('div', 'chat-emojis-grilla');
+      var grupos = [['🕘', 'Recientes', null]].concat(EMOJIS);
+      function mostrar(i) {
+        tabs.querySelectorAll('button').forEach(function (b, j) { b.classList.toggle('activa', i === j); });
+        grilla.innerHTML = '';
+        var lista = grupos[i][2] ? grupos[i][2].split(' ') : recientes();
+        lista.forEach(function (em) {
+          var b = el('button', null, em);
+          b.type = 'button';
+          b.addEventListener('click', function () { self.insertarEmoji(em); });
+          grilla.appendChild(b);
+        });
+      }
+      grupos.forEach(function (g, i) {
+        var t = el('button', null, g[0]);
+        t.type = 'button';
+        t.title = g[1];
+        t.addEventListener('click', function () { mostrar(i); });
+        tabs.appendChild(t);
+      });
+      sel.appendChild(tabs);
+      sel.appendChild(grilla);
+      this.selector = sel;
+      this.mostrarGrupo = mostrar;
+      this.form.appendChild(sel);
+      // Click afuera o Escape: se cierra (Escape no llega a cerrar la conversación).
+      document.addEventListener('mousedown', function (e) {
+        if (!sel.hidden && !sel.contains(e.target) && e.target !== self.btnEmoji) self.emojis(true);
+      });
+      this.raiz.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !sel.hidden) { e.preventDefault(); e.stopPropagation(); self.emojis(true); self.txt.focus(); }
+      });
+    }
+    var abrir = cerrar === true ? false : this.selector.hidden;
+    if (abrir) this.mostrarGrupo(0);
+    this.selector.hidden = !abrir;
+    this.btnEmoji.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+    this.btnEmoji.classList.toggle('activo', abrir);
+  };
+
+  Hilo.prototype.insertarEmoji = function (em) {
+    var t = this.txt, ini = t.selectionStart, fin = t.selectionEnd;
+    if (ini == null) { ini = fin = t.value.length; }
+    t.value = t.value.slice(0, ini) + em + t.value.slice(fin);
+    t.selectionStart = t.selectionEnd = ini + em.length;
+    t.focus();
+    this.alto();
+    guardarReciente(em);
+  };
+
   Hilo.prototype.enviar = function () {
     var self = this, texto = this.txt.value.trim(), f = this.file.files[0];
     if (!texto && !f) return;
@@ -357,6 +454,7 @@
     this.form.classList.add('enviando');
     this.error('');
     pedir(null, fd).then(function (d) {
+      if (self.selector) self.emojis(true);
       self.txt.value = '';
       self.file.value = '';
       self.mostrarArchivo();

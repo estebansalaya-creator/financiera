@@ -11,7 +11,8 @@ A la izquierda están tus conversaciones, la más reciente arriba. Las que tiene
 
 1. **Nuevo mensaje**: buscá a la persona por nombre o rol y elegila. Se abre la conversación con ella.
 2. Escribí y apretá **Enter** (o **Enviar**). **Shift + Enter** baja de renglón.
-3. Para mandar un archivo, usá el **clip**, arrastralo a la conversación o pegá una captura de pantalla con Ctrl + V. Se pueden mandar PDF, imágenes (JPG, PNG, WEBP), Word, Excel, CSV y texto, de a uno. El tamaño máximo es el mismo que para la documentación de clientes.
+3. Para poner un **emoji**, usá el botón 😊 (al lado del clip): tiene los últimos que usaste, caras, gestos, trabajo y símbolos. También sirve **Win + .** en Windows, y en el celular los del teclado. Un mensaje de uno a tres emojis solos se ve grande.
+4. Para mandar un archivo, usá el **clip**, arrastralo a la conversación o pegá una captura de pantalla con Ctrl + V. Se pueden mandar PDF, imágenes (JPG, PNG, WEBP), Word, Excel, CSV y texto, de a uno. El tamaño máximo es el mismo que para la documentación de clientes.
 
 **Grupos**
 
