@@ -1,0 +1,56 @@
+<?php
+declare(strict_types=1);
+
+require __DIR__ . '/../inc/bootstrap.php';
+require __DIR__ . '/../inc/layout.php';
+require __DIR__ . '/../inc/chat.php';
+
+// ---------------------------------------------------------------------
+// Mensajes: conversaciones directas, grupos y los hilos de las solicitudes
+// en las que participás. Todo lo dinámico lo arma assets/chat.js contra
+// chat_api.php; esta página solo dibuja el marco.
+//   chat.php?c=N      abre esa conversación
+//   chat.php?para=N   abre (o empieza) la conversación con ese usuario
+// ---------------------------------------------------------------------
+
+$error = null;
+try {
+    q1('SELECT 1 FROM chat_conversaciones LIMIT 1');
+} catch (PDOException $e) {
+    $error = (int) ($e->errorInfo[1] ?? 0) === 1146 ? 'Faltan las tablas de mensajes: corré sql\financiera_chat.sql.' : error_amigable($e);
+}
+
+layout_inicio('Mensajes');
+if ($error) {
+    titulo('Mensajes');
+    mensajes([$error]);
+    layout_fin();
+    exit;
+}
+?>
+<div class="chat card" data-chat-app>
+  <aside class="chat-lado">
+    <div class="chat-lado-head">
+      <strong>Mensajes</strong>
+      <div class="chat-lado-acc">
+        <?= boton('Nuevo mensaje', 'primary', null, 'agregar', false, true, ['data-nuevo' => true]) ?>
+        <?= boton('Grupo', 'ghost', null, 'grupo', false, true, ['data-nuevo-grupo' => true, 'title' => 'Armar un grupo']) ?>
+      </div>
+    </div>
+    <div class="menu-buscar chat-buscar">
+      <?= icono('buscar', 13) ?>
+      <input type="search" data-buscar placeholder="Buscar conversación…" autocomplete="off" aria-label="Buscar conversación">
+    </div>
+    <ul class="chat-convs" data-convs><li class="chat-lista-vacia">Cargando…</li></ul>
+  </aside>
+  <section class="chat-panel" data-panel hidden>
+    <div class="chat-cab" data-cabecera></div>
+    <div class="chat-zona" data-zona-hilo></div>
+  </section>
+  <div class="chat-sin" data-sin-conv>
+    <?= icono('mensaje', 40) ?>
+    <p>Elegí una conversación o empezá una nueva.</p>
+    <p class="campo-ayuda">Podés mandar PDF, imágenes, Word, Excel o texto (hasta <?= h(bytes_txt(docs_max_bytes())) ?>): con el clip, arrastrándolos o pegando una captura.</p>
+  </div>
+</div>
+<?php layout_fin(); ?>

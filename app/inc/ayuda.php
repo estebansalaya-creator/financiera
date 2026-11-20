@@ -26,7 +26,7 @@ declare(strict_types=1);
 const AYUDA_DIR = __DIR__ . '/../ayuda';
 
 /** Pantallas que no necesitan ayuda propia (salidas, redirecciones). */
-const AYUDA_SIN_SECCION = ['logout.php', 'logo.php', 'icono.php', 'manifest.php'];
+const AYUDA_SIN_SECCION = ['logout.php', 'logo.php', 'icono.php', 'manifest.php', 'chat_api.php', 'chat_adjunto.php'];
 
 /** Texto para comparar: minúsculas y sin acentos. */
 function ayuda_normalizar(string $s): string

@@ -52,6 +52,29 @@ function marca_logo(int $tam): string
         : '<span class="header-logo">' . icono('dinero', $tam) . '</span>';
 }
 
+/**
+ * El botón Mensajes del encabezado, con cuántas conversaciones tienen algo
+ * sin leer. assets/chat.js lo actualiza cada 20 segundos. Sin la opción
+ * Mensajes, o sin las tablas todavía, no se dibuja.
+ */
+function chat_boton_encabezado(): string
+{
+    if (!usuario_id() || !puede('chat.php')) {
+        return '';
+    }
+    try {
+        $r = q1("SELECT COUNT(*) AS n FROM chat_participantes p
+                   JOIN chat_conversaciones c ON c.id_conversacion = p.id_conversacion
+                  WHERE p.id_usuario = ? AND p.silenciada = 0 AND c.ultimo_mensaje_id > p.ultimo_leido", [usuario_id()]);
+        $n = (int) $r['n'];
+    } catch (Throwable $e) {
+        return '';
+    }
+    return '<a href="chat.php" class="header-boton header-chat' . (pagina_actual() === 'chat.php' ? ' activo' : '') . '" data-chat-contador="' . $n . '" title="Mensajes">'
+         . icono('mensaje', 14) . '<span class="hb-texto">Mensajes</span>'
+         . '<span class="chat-badge"' . ($n ? '' : ' hidden') . '>' . ($n > 99 ? '99+' : $n) . '</span></a>';
+}
+
 /** $activo queda por compatibilidad: la opción activa sale de la pantalla actual. */
 function layout_inicio(string $titulo, string $activo = ''): void
 {
@@ -79,6 +102,7 @@ function layout_inicio(string $titulo, string $activo = ''): void
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= h($titulo) ?> · <?= h(empresa_nombre()) ?></title>
 <?php pwa_head(); ?>
+<meta name="fin-csrf" content="<?= h(csrf_token()) ?>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/app.css?v=<?= @filemtime(__DIR__ . '/../public/assets/app.css') ?: 0 ?>">
@@ -98,6 +122,7 @@ function layout_inicio(string $titulo, string $activo = ''): void
   <div class="header-spacer"></div>
   <button type="button" class="header-boton" data-instalar-app hidden title="Instalar la Financiera como app en este dispositivo"><?= icono('telefono', 14) ?><span class="hb-texto">Instalar app</span></button>
   <span class="header-fecha"><?= h(ucfirst($hoy)) ?></span>
+  <?= chat_boton_encabezado() ?>
   <?php if ($u): ?>
   <a href="mi_clave.php" class="header-user" title="<?= h($u['email'] . ($u['roles'] ? ' · ' . implode(', ', $u['roles']) : '')) ?> · Cambiar mi contraseña">
     <?= icono('usuario', 16) ?><span class="hb-texto"><?= h($u['nombre']) ?></span>
@@ -136,6 +161,9 @@ function layout_fin(): void
 <?php endif; ?>
 <script src="assets/app.js?v=<?= @filemtime(__DIR__ . '/../public/assets/app.js') ?: 0 ?>"></script>
 <script src="assets/tabla.js"></script>
+<?php if (usuario_id()): ?>
+<script src="assets/chat.js?v=<?= @filemtime(__DIR__ . '/../public/assets/chat.js') ?: 0 ?>"></script>
+<?php endif; ?>
 </body>
 </html>
 <?php

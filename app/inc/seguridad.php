@@ -38,6 +38,10 @@ const PAGINAS_PERMISO = [
     'recibo.php'    => ['cobranzas.php', 'cobrar.php'],
     'inversion.php' => ['inversiones.php'],
     'inversor.php'  => ['inversores.php', 'inversiones.php'],
+    // Mensajes: el chat con «Mensajes»; el hilo de una solicitud, con lo que abre la solicitud.
+    // Cada acción vuelve a controlar lo suyo (inc/chat.php).
+    'chat_api.php'     => ['chat.php', 'solicitudes.php', 'autorizaciones.php'],
+    'chat_adjunto.php' => ['chat.php', 'solicitudes.php', 'autorizaciones.php'],
 ];
 
 const PERMISOS_VIGENCIA = 60;     // segundos entre relecturas de roles y opciones
@@ -231,6 +235,21 @@ function menu_url_activa(): ?string
     return null;
 }
 
+/**
+ * Pedidos de la API (chat_api.php define FIN_API): sin sesión, vencida o sin
+ * permiso se contesta JSON con el código, en vez de redirigir a una pantalla.
+ */
+function seguridad_cortar_api(int $http, string $mensaje): void
+{
+    if (!defined('FIN_API')) {
+        return;
+    }
+    http_response_code($http);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    exit(json_encode(['ok' => false, 'error' => $mensaje, 'sesion' => $http === 401 ? false : null], JSON_UNESCAPED_UNICODE));
+}
+
 /** Una URL de esta aplicación a la que se puede volver después del login. */
 function url_local(string $u): bool
 {
@@ -250,25 +269,32 @@ function seguridad_iniciar(): void
     }
 
     if (!validasesion()) {
+        seguridad_cortar_api(401, 'La sesión se cerró. Volvé a ingresar.');
         $volver = basename((string) ($_SERVER['REQUEST_URI'] ?? ''));
         redirigir('login.php' . ($volver !== '' && url_local($volver) && $volver !== 'index.php' ? '?volver=' . rawurlencode($volver) : ''));
     }
 
-    // Inactividad
+    // Inactividad. Las consultas automáticas (FIN_SIN_ACTIVIDAD: el contador
+    // de mensajes, los mensajes nuevos) no cuentan como uso: si no, una
+    // pestaña abierta mantendría la sesión viva para siempre.
     $minutos = (int) cfg('sesion_minutos', 480);
     if ($minutos > 0 && time() - (int) ($_SESSION['fin_ultimo'] ?? 0) > $minutos * 60) {
         $_SESSION = [];
         session_destroy();
+        seguridad_cortar_api(401, 'La sesión se cerró por inactividad. Volvé a ingresar.');
         flash('info', 'La sesión se cerró por inactividad. Volvé a ingresar.');
         redirigir('login.php');
     }
-    $_SESSION['fin_ultimo'] = time();
+    if (!defined('FIN_SIN_ACTIVIDAD')) {
+        $_SESSION['fin_ultimo'] = time();
+    }
 
     try {
         if (time() - (int) ($_SESSION['fin_permisos_ts'] ?? 0) >= PERMISOS_VIGENCIA) {
             sesion_refrescar();
             if (!validasesion()) {
                 session_destroy();
+                seguridad_cortar_api(401, 'Tu usuario fue dado de baja.');
                 flash('warning', 'Tu usuario fue dado de baja.');
                 redirigir('login.php');
             }
@@ -284,6 +310,7 @@ function seguridad_iniciar(): void
     sesion_soltar();
 
     if (!$permitida) {
+        seguridad_cortar_api(403, 'No tenés permiso para esto.');
         $destino = primera_pantalla();
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $destino !== null && $destino !== $p) {
             flash('warning', 'No tenés permiso para esa pantalla. Si la necesitás, pedíselo a un administrador.');

@@ -581,6 +581,11 @@ if ($modoForm):
   </div>
 </div>
 
+<div class="card" id="mensajes">
+  <?= card_head('Mensajes', 'los ven quien la cargó, el vendedor y quien la autoriza; avisan en el encabezado') ?>
+  <div class="chat-hilo-solicitud" data-chat-hilo data-solicitud="<?= $id ?>"></div>
+</div>
+
 <div class="card">
   <?= card_head('Historial', count($hist) . (count($hist) === 1 ? ' paso' : ' pasos')) ?>
   <div class="data-table-wrap">

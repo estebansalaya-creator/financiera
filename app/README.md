@@ -86,7 +86,8 @@ sesiones\             sesiones de PHP (config: sesion_dir)
 
    Pide la contraseña (vacía = genera una y la muestra). Con `--rol=Gerencia` (u otro) crea el usuario con ese rol. Si el correo ya existe, le cambia la contraseña y lo reactiva: sirve también para destrabar a un administrador.
 10. **Empresa, teléfonos y solicitudes:** corré `sql\financiera_empresa.sql` (datos de la empresa, logo, opción de menú), `sql\financiera_telefonos.sql` (celular del vendedor) y `sql\financiera_solicitudes.sql` (solicitudes, historial y las opciones Solicitudes y Autorizaciones). Después cargá los datos y el logo en *Tablas y parámetros › Datos de la empresa*.
-11. Abrí el sitio: pide ingresar y después entra a la primera pantalla del menú del usuario.
+11. **Mensajes:** corré `sql\financiera_chat.sql` (conversaciones, grupos, hilo de cada solicitud y la opción Mensajes para todos los roles). Los adjuntos quedan en `documentos\chat\<conversación>\`, con los mismos límites que la documentación de clientes.
+12. Abrí el sitio: pide ingresar y después entra a la primera pantalla del menú del usuario.
 
 Para ver el detalle de un error de base durante el desarrollo, poné `'debug' => true` en `config.php`. En producción dejalo en `false`, porque si no los mensajes de MySQL se muestran en pantalla.
 
