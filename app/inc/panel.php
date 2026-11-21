@@ -78,15 +78,15 @@ function panel_creditos(string $d, string $h): array
                       COALESCE(SUM(gastos_otorg), 0) AS gastos, COALESCE(SUM(total_intereses), 0) AS intereses,
                       COALESCE(SUM(comision_monto), 0) AS comision
                  FROM prestamos WHERE fecha_liquidacion BETWEEN ? AND ? AND estado <> 'ANULADO'", [$d, $h]);
-    $liqProd = q("SELECT pr.nombre AS producto, COUNT(*) AS n, SUM(p.capital) AS capital, SUM(p.neto_desembolso) AS neto
-                    FROM prestamos p JOIN productos pr ON pr.id_producto = p.id_producto
+    $liqProd = q("SELECT ta.nombre AS tipo_asociado, COUNT(*) AS n, SUM(p.capital) AS capital, SUM(p.neto_desembolso) AS neto
+                    FROM prestamos p JOIN tipos_asociado ta ON ta.id_tipo_asociado = p.id_tipo_asociado
                    WHERE p.fecha_liquidacion BETWEEN ? AND ? AND p.estado <> 'ANULADO'
-                   GROUP BY pr.id_producto, pr.nombre ORDER BY capital DESC", [$d, $h]);
-    $liqLista = q("SELECT p.id_prestamo, p.nro_prestamo, p.fecha_liquidacion, c.denominacion, pr.nombre AS producto,
+                   GROUP BY ta.id_tipo_asociado, ta.nombre ORDER BY capital DESC", [$d, $h]);
+    $liqLista = q("SELECT p.id_prestamo, p.nro_prestamo, p.fecha_liquidacion, c.denominacion, ta.nombre AS tipo_asociado,
                           v.nombre AS vendedor, p.capital, p.neto_desembolso, p.plazo, p.valor_cuota
                      FROM prestamos p
                      JOIN clientes c ON c.id_cliente = p.id_cliente
-                     JOIN productos pr ON pr.id_producto = p.id_producto
+                     JOIN tipos_asociado ta ON ta.id_tipo_asociado = p.id_tipo_asociado
                      LEFT JOIN vendedores v ON v.id_vendedor = p.id_vendedor
                     WHERE p.fecha_liquidacion BETWEEN ? AND ? AND p.estado <> 'ANULADO'
                     ORDER BY p.fecha_liquidacion DESC, p.id_prestamo DESC LIMIT " . PANEL_LISTA_MAX, [$d, $h]);

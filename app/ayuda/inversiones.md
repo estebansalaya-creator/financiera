@@ -14,7 +14,7 @@ Los inversores aportan capital por un plazo y cobran intereses al vencimiento. C
 <!-- pantallas: inversores.php inversor.php -->
 <!-- resumen: Alta del inversor y su capital vigente. -->
 
-*Inversiones* → **Inversores** → **Nuevo inversor**: persona o empresa, CUIT, contacto y CBU o alias (para pagarle). El listado muestra el capital vigente en pesos y en dólares y el próximo vencimiento. La ficha tiene sus aportes y liquidaciones.
+*Inversiones* → **Inversores** → **Nuevo inversor**: persona o empresa, CUIT, contacto y CBU / CVU y alias (para pagarle; se validan los dígitos verificadores y la ficha del aporte dice de qué banco es la cuenta). El listado muestra el capital vigente en pesos y en dólares y el próximo vencimiento. La ficha tiene sus aportes y liquidaciones.
 
 ## Aportes
 <!-- pantallas: inversiones.php -->
@@ -25,7 +25,8 @@ Los inversores aportan capital por un plazo y cobran intereses al vencimiento. C
 3. Capital, fecha de inicio y plazo en días (o la fecha de vencimiento: una calcula la otra).
 4. Tasa fija: la **TNA** en %. Al lado se ve el interés y el total al vencimiento.
 5. Participación: el **% del interés cobrado** que le corresponde y los **préstamos que financia** con cuánto de cada uno (*Agregar préstamo*). Cada préstamo muestra cuánto capital le queda libre para financiar; la suma no puede pasar el capital del aporte.
-6. **Cargar aporte**. Se numera `I-000001`… y se puede bajar la **Constancia PDF**.
+6. La **cuenta de fondos** donde ingresa el capital (de la moneda del aporte; viene la predeterminada), cómo ingresa y la referencia.
+7. **Cargar aporte**. Se numera `I-000001`… y se puede bajar la **Constancia PDF**. El capital queda en *Tesorería › Subdiario de cuentas de fondos* (las renovaciones no mueven plata).
 
 **Seguimiento.** El listado muestra el capital vigente por moneda, lo que vence en 30 días, las liquidaciones a pagar y cada aporte con su devengado a hoy. Los vencidos sin liquidar aparecen en rojo con *vencido: liquidar*. El filtro *Vencimiento* muestra los vencidos o los que vencen en 7, 30 o 90 días.
 
@@ -42,7 +43,7 @@ Los inversores aportan capital por un plazo y cobran intereses al vencimiento. C
 4. Si se renueva, el plazo (viene el mismo). La renovación es un aporte nuevo con las mismas condiciones; en participación sigue financiando los préstamos que sigan vigentes.
 5. **Liquidar** → confirmar. Queda en *Liquidaciones* con su **PDF**.
 
-**Pagar al inversor.** En la liquidación *A pagar*: fecha, medio y N° de transferencia → **Pagado**.
+**Pagar al inversor.** En la liquidación *A pagar*: fecha, la cuenta de fondos de la que sale (de la moneda de la liquidación), medio y N° de transferencia (con cheque, su número) → **Pagado**. El pago queda en el libro de fondos.
 
 Si una liquidación se hizo mal y todavía no se pagó: escribí el motivo → **Anular liquidación**. El aporte vuelve a vigente y la renovación, si hubo, se anula. Un aporte cargado por error (sin liquidar) se anula al pie de su ficha.
 

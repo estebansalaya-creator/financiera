@@ -85,9 +85,9 @@ if (get_str('export') === 'pdf' && $error === null) {
                      . panel_cant($a['apr'], 'aprobada', 'aprobadas') . ' sin liquidar (' . money($a['apr_monto']) . ').'
                      . ((int) $c['espera']['n'] ? ' Autorización promedio de las resueltas en el período: ' . panel_duracion((float) $c['espera']['minutos']) . '.' : ''));
 
-            $rep->seccion('Préstamos liquidados por producto', panel_cant($c['liq']['n'], 'préstamo', 'préstamos'));
-            $rep->tabla([['Producto', 2.4, 'L'], ['Cantidad', 1, 'R'], ['Capital', 1.6, 'R'], ['Neto desembolsado', 1.6, 'R']],
-                array_map(function ($r) { return [$r['producto'], num($r['n']), money($r['capital']), money($r['neto'])]; }, $c['liqProd']),
+            $rep->seccion('Préstamos liquidados por tipo de asociado', panel_cant($c['liq']['n'], 'préstamo', 'préstamos'));
+            $rep->tabla([['Tipo de asociado', 2.4, 'L'], ['Cantidad', 1, 'R'], ['Capital', 1.6, 'R'], ['Neto desembolsado', 1.6, 'R']],
+                array_map(function ($r) { return [$r['tipo_asociado'], num($r['n']), money($r['capital']), money($r['neto'])]; }, $c['liqProd']),
                 ['Total', num($c['liq']['n']), money($c['liq']['capital']), money($c['liq']['neto'])], 0.7);
             $rep->nota('Gastos de otorgamiento ' . money($c['liq']['gastos']) . ' · intereses a cobrar ' . money($c['liq']['intereses'])
                      . ' · comisiones ' . money($c['liq']['comision']) . '.');
@@ -119,10 +119,10 @@ if (get_str('export') === 'pdf' && $error === null) {
             }
             if ($c['liqLista']) {
                 $rep->seccion('Préstamos liquidados', count($c['liqLista']) >= PANEL_LISTA_MAX ? 'los últimos ' . PANEL_LISTA_MAX : '');
-                $rep->tabla([['Nº', 1.1, 'L'], ['Fecha', 1, 'L'], ['Cliente', 3, 'L'], ['Producto', 1.8, 'L'], ['Vendedor', 1.8, 'L'],
+                $rep->tabla([['Nº', 1.1, 'L'], ['Fecha', 1, 'L'], ['Cliente', 3, 'L'], ['Tipo de asociado', 1.8, 'L'], ['Vendedor', 1.8, 'L'],
                              ['Capital', 1.4, 'R'], ['Neto', 1.4, 'R'], ['Cuotas', 0.8, 'R']],
                     array_map(function ($p) {
-                        return [$p['nro_prestamo'], fecha($p['fecha_liquidacion']), $p['denominacion'], $p['producto'], (string) $p['vendedor'],
+                        return [$p['nro_prestamo'], fecha($p['fecha_liquidacion']), $p['denominacion'], $p['tipo_asociado'], (string) $p['vendedor'],
                                 money($p['capital']), money($p['neto_desembolso']), (int) $p['plazo'] . ' × ' . money($p['valor_cuota'])];
                     }, $c['liqLista']));
             }
@@ -300,13 +300,13 @@ mensajes($error ? [$error] : []);
   </div>
 
   <div class="card">
-    <?= card_head('Préstamos liquidados por producto', panel_cant($c['liq']['n'], 'préstamo', 'préstamos')) ?>
+    <?= card_head('Préstamos liquidados por tipo de asociado', panel_cant($c['liq']['n'], 'préstamo', 'préstamos')) ?>
     <div class="data-table-wrap">
       <table class="data-table compacta" data-sin-orden>
-        <thead><tr><th data-no-sort>Producto</th><th class="th-right" data-no-sort>Cant.</th><th class="th-right" data-no-sort>Capital</th><th class="th-right" data-no-sort>Neto desembolsado</th></tr></thead>
+        <thead><tr><th data-no-sort>Tipo de asociado</th><th class="th-right" data-no-sort>Cant.</th><th class="th-right" data-no-sort>Capital</th><th class="th-right" data-no-sort>Neto desembolsado</th></tr></thead>
         <tbody>
         <?php foreach ($c['liqProd'] as $r): ?>
-          <tr><td><?= h($r['producto']) ?></td><td class="td-right"><?= num($r['n']) ?></td><td class="td-right"><?= money($r['capital']) ?></td><td class="td-right"><?= money($r['neto']) ?></td></tr>
+          <tr><td><?= h($r['tipo_asociado']) ?></td><td class="td-right"><?= num($r['n']) ?></td><td class="td-right"><?= money($r['capital']) ?></td><td class="td-right"><?= money($r['neto']) ?></td></tr>
         <?php endforeach; ?>
         <?php if (!$c['liqProd']): ?><tr><td colspan="4" class="no-data">No se liquidaron préstamos en el período.</td></tr><?php endif; ?>
         </tbody>
@@ -347,12 +347,12 @@ mensajes($error ? [$error] : []);
   <?= card_head('Préstamos liquidados', count($c['liqLista']) >= PANEL_LISTA_MAX ? 'los últimos ' . PANEL_LISTA_MAX : num(count($c['liqLista'])) . ' en el período') ?>
   <div class="data-table-wrap">
     <table class="data-table compacta">
-      <thead><tr><th>Nº</th><th>Fecha</th><th>Cliente</th><th>Producto</th><th>Vendedor</th><th class="th-right">Capital</th><th class="th-right">Neto</th><th class="th-right">Cuotas</th></tr></thead>
+      <thead><tr><th>Nº</th><th>Fecha</th><th>Cliente</th><th>Tipo de asociado</th><th>Vendedor</th><th class="th-right">Capital</th><th class="th-right">Neto</th><th class="th-right">Cuotas</th></tr></thead>
       <tbody>
       <?php foreach ($c['liqLista'] as $p): ?>
         <tr><td class="td-mono"><?= $verPrestamo ? '<a href="prestamo.php?id=' . (int) $p['id_prestamo'] . '">' . h($p['nro_prestamo']) . '</a>' : h($p['nro_prestamo']) ?></td>
           <td data-orden="<?= h($p['fecha_liquidacion']) ?>"><?= fecha($p['fecha_liquidacion']) ?></td><td class="td-fuerte"><?= h($p['denominacion']) ?></td>
-          <td><?= h($p['producto']) ?></td><td><?= h((string) $p['vendedor']) ?></td>
+          <td><?= h($p['tipo_asociado']) ?></td><td><?= h((string) $p['vendedor']) ?></td>
           <td class="td-right" data-orden="<?= (float) $p['capital'] ?>"><?= money($p['capital']) ?></td>
           <td class="td-right" data-orden="<?= (float) $p['neto_desembolso'] ?>"><?= money($p['neto_desembolso']) ?></td>
           <td class="td-right td-nowrap"><?= (int) $p['plazo'] ?> × <?= money($p['valor_cuota']) ?></td></tr>

@@ -15,7 +15,7 @@ require __DIR__ . '/../inc/chat.php';
 //   Observadas, Aprobadas y Cerradas. Lo último elegido queda recordado en
 //   el navegador.
 //   chat.php?para=N   abre (o empieza) la conversación con ese usuario
-//   &volver=pantalla  adónde lleva Cerrar (la pone el globito flotante)
+//   &volver=pantalla  adónde lleva Cerrar (la pone el botón Mensajes)
 // ---------------------------------------------------------------------
 
 $volver = get_str('volver');

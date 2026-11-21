@@ -29,6 +29,9 @@ $resumen    = [];
 $detalle    = [];
 $subtotales = [];
 $tot        = ['registros' => 0, 'monto' => 0, 'comision' => 0, 'tm' => 0];
+// Datos bancarios del vendedor (para pagarle), con sql\financiera_datos_bancarios.sql.
+$conBanco   = columna_existe('vendedores', 'cbu');
+$colBanco   = $conBanco ? 'v.cbu, v.alias_cbu' : 'NULL AS cbu, NULL AS alias_cbu';
 
 // Filtros pedidos (se validan contra los valores del período)
 $fTipo = trim(get_str('tipo'));
@@ -75,11 +78,11 @@ try {
 
     if ($periodo !== '') {
         $vendedores = q(
-            'SELECT DISTINCT v.id_vendedor, v.codigo, v.nombre
+            "SELECT DISTINCT v.id_vendedor, v.codigo, v.nombre, $colBanco
                FROM comisiones_importadas i
                JOIN vendedores v ON v.id_vendedor = i.id_vendedor
               WHERE i.periodo = ?
-              ORDER BY v.nombre',
+              ORDER BY v.nombre",
             [$periodo]
         );
         $tipos = array_column(
@@ -159,7 +162,7 @@ try {
             );
         } else {
             $resumen = q(
-                "SELECT v.id_vendedor, v.codigo, v.nombre AS vendedor,
+                "SELECT v.id_vendedor, v.codigo, v.nombre AS vendedor, $colBanco,
                         COUNT(*)                     AS registros,
                         SUM(i.monto)                 AS monto,
                         SUM(i.comision)              AS comision,
@@ -168,7 +171,7 @@ try {
                    FROM comisiones_importadas i
                    JOIN vendedores v ON v.id_vendedor = i.id_vendedor
                   WHERE $where
-                  GROUP BY v.id_vendedor, v.codigo, v.nombre
+                  GROUP BY v.id_vendedor, v.codigo, v.nombre" . ($conBanco ? ', v.cbu, v.alias_cbu' : '') . "
                   ORDER BY v.nombre",
                 $params
             );
@@ -211,10 +214,12 @@ if (get_str('export') === 'xlsx' && $error === null && $periodo !== '') {
         if (!$vendedor) {
             $libro->hoja('Resumen')->titulo($titulo, $sub)->tabla(
                 [['Vendedor', 'texto', 26], ['Registros', 'entero', 11], ['Monto', 'moneda', 17],
-                 ['Comisión', 'moneda', 16], ['% prom.', 'pct', 10], ['Observación', 'texto', 75]],
+                 ['Comisión', 'moneda', 16], ['% prom.', 'pct', 10], ['CBU / CVU', 'texto', 25], ['Alias', 'texto', 22],
+                 ['Observación', 'texto', 60]],
                 array_map(function ($r) {
                     return [$r['vendedor'], $r['registros'], $r['monto'], $r['comision'],
                             (float) $r['monto'] > 0 ? $r['comision'] / $r['monto'] : 0,
+                            (string) $r['cbu'], (string) $r['alias_cbu'],
                             $r['n_pct'] > 1 ? $r['n_pct'] . ' porcentajes distintos: ' . lista_pct($r['pcts']) : ''];
                 }, $resumen),
                 [0 => ['texto' => 'TOTAL GENERAL'], 1 => ['suma' => true], 2 => ['suma' => true],
@@ -345,6 +350,10 @@ layout_inicio('Comisiones', 'comisiones');
     <?php if ($periodo !== ''): ?>
       <p><?= h(periodo_txt($periodo)) ?> · historial importado de las planillas de liquidación</p>
     <?php endif; ?>
+    <?php if ($vendedor && $conBanco): ?>
+      <p>Para pagarle: <?= datos_bancarios_html($vendedor['cbu'], $vendedor['alias_cbu'])
+          ?: 'sin CBU ni alias (se cargan en <a href="vendedores.php?edit=' . (int) $vendedor['id_vendedor'] . '">Vendedores</a>)' ?></p>
+    <?php endif; ?>
     <?php if ($hayFiltros): ?>
       <div class="filtros-activos"><span class="chip">Filtrado por <?= h(implode(' · ', $activos)) ?></span></div>
     <?php endif; ?>
@@ -402,12 +411,7 @@ layout_inicio('Comisiones', 'comisiones');
       <input type="search" name="q" value="<?= h($fQ) ?>" maxlength="60"
              class="filter-input <?= $fQ !== '' ? 'activo' : '' ?>" placeholder="Apellido, nombre o repartición…">
     </label>
-    <button type="submit" class="btn btn-primary btn-sm"><?= icono('filtro') ?>Filtrar</button>
-    <?php if ($hayFiltros): ?>
-      <a class="btn btn-secondary btn-sm" href="<?= h($urlLimpiar) ?>"><?= icono('quitar_filtro') ?>Quitar filtro</a>
-    <?php else: ?>
-      <button type="button" class="btn btn-secondary btn-sm" disabled><?= icono('quitar_filtro') ?>Quitar filtro</button>
-    <?php endif; ?>
+    <?= filtro_botones($urlLimpiar, $hayFiltros) ?>
   </form>
 </div>
 <?php endif; ?>
@@ -438,11 +442,10 @@ layout_inicio('Comisiones', 'comisiones');
 
   <?php if (!$vendedor): ?>
   <div class="card">
-    <div class="card-head">
-      <div><span class="card-head-titulo">Resumen por vendedor</span><span class="card-head-nota"><?= count($resumen) ?> vendedores · clic en un encabezado para ordenar</span></div>
-    </div>
+    <?= card_head('Resumen por vendedor', 'clic en un encabezado para ordenar') ?>
+    <?= barra_local('comisiones.php', 'Vendedor, CBU o alias…', '', false, null) ?>
     <div class="data-table-wrap">
-      <table class="data-table">
+      <table class="data-table" data-local data-paginada data-unidad="vendedor|vendedores">
         <thead>
           <tr>
             <th class="col-acciones" data-no-sort>Acciones</th>
@@ -464,7 +467,8 @@ layout_inicio('Comisiones', 'comisiones');
                 <a class="btn-accion planilla" href="<?= h(url_con(['vendedor' => $r['id_vendedor'], 'export' => 'xlsx'])) ?>" title="Excel del vendedor"><?= icono('planilla') ?></a>
               </div>
             </td>
-            <td class="td-fuerte"><a href="<?= h(url_con(['vendedor' => $r['id_vendedor']])) ?>"><?= h($r['vendedor']) ?></a></td>
+            <td class="td-fuerte"><a href="<?= h(url_con(['vendedor' => $r['id_vendedor']])) ?>"><?= h($r['vendedor']) ?></a>
+              <?php if ($conBanco): ?><span class="segunda-linea"><?= datos_bancarios_html($r['cbu'], $r['alias_cbu']) ?: 'sin CBU ni alias' ?></span><?php endif; ?></td>
             <td class="td-right" data-orden="<?= h($r['registros']) ?>"><?= num($r['registros']) ?></td>
             <td class="td-right" data-orden="<?= h($r['monto']) ?>"><?= money($r['monto']) ?></td>
             <td class="td-right" data-orden="<?= h($r['comision']) ?>"><?= money($r['comision']) ?></td>
@@ -486,13 +490,12 @@ layout_inicio('Comisiones', 'comisiones');
         </tfoot>
       </table>
     </div>
+    <?= paginacion_local() ?>
   </div>
   <?php endif; ?>
 
   <div class="card">
-    <div class="card-head">
-      <div><span class="card-head-titulo">Subtotales por % aplicado</span><span class="card-head-nota"><?= $vendedor ? 'de este vendedor' : 'todos los vendedores' ?></span></div>
-    </div>
+    <?= card_head('Subtotales por % aplicado', $vendedor ? 'de este vendedor' : 'todos los vendedores') ?>
     <div class="data-table-wrap">
       <table class="data-table compacta">
         <thead>
@@ -527,20 +530,10 @@ layout_inicio('Comisiones', 'comisiones');
 
   <?php if ($vendedor): ?>
   <div class="card">
-    <div class="card-head">
-      <div><span class="card-head-titulo">Detalle de operaciones</span></div>
-      <div class="card-head-acciones">
-        <span class="filter-count"></span>
-        <select class="page-size-select" aria-label="Filas por página">
-          <option value="20">20 por pág.</option>
-          <option value="50">50 por pág.</option>
-          <option value="100">100 por pág.</option>
-          <option value="9999">Todos</option>
-        </select>
-      </div>
-    </div>
+    <?= card_head('Detalle de operaciones') ?>
+    <?= barra_local('comisiones.php', 'Apellido, nombre, repartición o tipo…', '', false, null) ?>
     <div class="data-table-wrap">
-      <table class="data-table" data-paginada>
+      <table class="data-table" data-local data-paginada data-unidad="operación|operaciones">
         <thead>
           <tr>
             <th>Fecha</th>
@@ -582,10 +575,7 @@ layout_inicio('Comisiones', 'comisiones');
         </tfoot>
       </table>
     </div>
-    <div class="pagination-bar">
-      <span class="pagination-info"></span>
-      <div class="pagination-controls"></div>
-    </div>
+    <?= paginacion_local() ?>
   </div>
   <?php endif; ?>
 

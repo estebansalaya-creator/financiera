@@ -5,6 +5,7 @@ require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/cobranzas.php';
 require __DIR__ . '/../inc/documentos.php';
+require __DIR__ . '/../inc/fondos.php';
 
 // ---------------------------------------------------------------------
 // Importar un lote de cobranza (CSV)
@@ -22,6 +23,10 @@ require __DIR__ . '/../inc/documentos.php';
 //   importe    1234,56 o 1234.56               obligatorio
 //   fecha      dd/mm/aaaa o aaaa-mm-dd         si falta, la del formulario
 //   referencia N° de operación, código…        opcional
+// Con Tesorería, el lote lleva la cuenta de fondos donde acredita la
+// recaudadora: cada pago entra al libro en esa cuenta (un renglón por pago).
+// Los recibos salen del talonario de recibos (el único habilitado o el que
+// se elige), con números seguidos en el orden en que se cargan los pagos.
 // ---------------------------------------------------------------------
 
 const LOTE_COLUMNAS = [
@@ -69,7 +74,8 @@ function lote_leer(string $ruta): array
             break;
         }
     }
-    $titulos = array_map(function ($t) { return strtolower(trim($t, " \t\"")); }, str_getcsv($lineas[0], $sep));
+    // str_getcsv con el escape explícito (el de siempre, la barra): PHP 8.4 avisa si falta.
+    $titulos = array_map(function ($t) { return strtolower(trim($t, " \t\"")); }, str_getcsv($lineas[0], $sep, '"', '\\'));
     $mapa = [];
     foreach ($titulos as $i => $t) {
         foreach (LOTE_COLUMNAS as $campo => $alias) {
@@ -86,7 +92,7 @@ function lote_leer(string $ruta): array
     }
     $filas = [];
     for ($n = 1; $n < count($lineas); $n++) {
-        $cel = str_getcsv($lineas[$n], $sep);
+        $cel = str_getcsv($lineas[$n], $sep, '"', '\\');
         $f = ['_fila' => $n + 1];
         foreach (array_keys(LOTE_COLUMNAS) as $campo) {
             $f[$campo] = isset($mapa[$campo]) ? trim((string) ($cel[$mapa[$campo]] ?? '')) : '';
@@ -195,6 +201,24 @@ $token = '';
 $nombreArchivo = '';
 $medio = post_str('medio') ?: 'RAPIPAGO';
 $fechaDef = leer_fecha(post_str('fecha')) ?? date('Y-m-d');
+$cuentasCobro = $mapaMedios = [];
+try {
+    if (fondos_instalado()) {
+        $cuentasCobro = cuentas_fondos('ARS');
+        $mapaMedios = cuenta_por_medio();
+    }
+} catch (Throwable $e) {
+    error_log('[financiera] cuentas de fondos: ' . $e->getMessage());
+}
+$cuenta = es_post() ? post_str('cuenta') : (string) ($mapaMedios[$medio] ?? '');
+$tals = [];
+try {
+    $tals = talonarios_recibo();
+} catch (Throwable $e) {
+    error_log('[financiera] talonarios de recibos: ' . $e->getMessage());
+}
+$talonario = es_post() ? post_str('talonario') : (count($tals) === 1 ? (string) array_key_first($tals) : '');
+$idTal = null;
 
 if (es_post()) {
     if (empty($_POST) && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
@@ -205,6 +229,10 @@ if (es_post()) {
         if (!isset(MEDIOS_PAGO[$medio])) {
             $errores[] = 'Elegí el medio de pago del lote.';
         }
+        if ($cuentasCobro && !isset($cuentasCobro[(int) $cuenta])) {
+            $errores[] = 'Elegí la cuenta de fondos donde acredita el lote.';
+        }
+        $idTal = talonario_recibo_post($tals, $talonario, $errores);
         if ($accion === 'subir' && !$errores) {
             $a = doc_archivos_subidos('archivo')[0] ?? null;
             if (!$a || $a['error'] !== UPLOAD_ERR_OK) {
@@ -252,13 +280,17 @@ if (es_post()) {
                     try {
                         q('INSERT INTO lotes_cobranza (medio, fecha, archivo, creado_por) VALUES (?,?,?,?)', [$medio, $fechaDef, $nombreArchivo, usuario_id()]);
                         $idLote = (int) db()->lastInsertId();
+                        $idCuenta = $cuentasCobro ? (int) $cuenta : null;
+                        if ($idCuenta) {
+                            q('UPDATE lotes_cobranza SET id_cuenta_fondos = ? WHERE id_lote = ?', [$idCuenta, $idLote]);
+                        }
                         usort($ok, function ($a, $b) { return [$a['fecha_n'], $a['_fila']] <=> [$b['fecha_n'], $b['_fila']]; });
                         $hechos = 0;
                         $total = 0.0;
                         $fallas = [];
                         foreach ($ok as $f) {
                             try {
-                                registrar_pago($f['id_prestamo'], $f['fecha_n'], $f['importe_n'], $medio, substr($f['referencia'], 0, 100), 'NORMAL', $idLote);
+                                registrar_pago($f['id_prestamo'], $f['fecha_n'], $f['importe_n'], $medio, substr($f['referencia'], 0, 100), 'NORMAL', $idLote, $idCuenta, $idTal);
                                 $hechos++;
                                 $total += $f['importe_n'];
                             } catch (Throwable $e) {
@@ -304,6 +336,18 @@ mensajes($errores);
             <select id="medio" name="medio"><?= opciones(MEDIOS_PAGO, $medio) ?></select></div>
           <div class="campo" style="--span:6"><label for="fecha">Fecha (si el archivo no la trae)</label>
             <input type="date" id="fecha" name="fecha" value="<?= h($fechaDef) ?>" max="<?= date('Y-m-d') ?>"></div>
+          <?php if ($cuentasCobro): ?>
+          <?= campo_cuenta_fondos('cuenta', 'Acredita en', $cuentasCobro, $cuenta, 12, 'la cuenta donde la recaudadora deposita lo cobrado; cada pago entra ahí') ?>
+          <script>
+          (function () {
+            var cta = document.getElementById('cf-cuenta'), habitual = <?= json_encode((object) $mapaMedios) ?>;
+            document.getElementById('medio').addEventListener('change', function () {
+              if (habitual[this.value] && cta.querySelector('option[value="' + habitual[this.value] + '"]')) cta.value = String(habitual[this.value]);
+            });
+          })();
+          </script>
+          <?php endif; ?>
+          <?= campo_talonario_recibo($tals, $talonario, 12) ?>
         </div>
       </div>
       <div class="form-acciones"><?= boton('Ver vista previa', 'primary', null, 'filtro', true) ?></div>
@@ -329,7 +373,7 @@ P-000027;18/11/2026;30000;RP-88214</pre>
 <?php else: ?>
 <div class="bcra-tarjetas indicadores-fila">
   <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Archivo</span><strong style="font-size:1rem"><?= h($nombreArchivo) ?></strong>
-    <span class="bcra-tarjeta-sub"><?= h(MEDIOS_PAGO[$medio]) ?> · <?= count($filas) ?> filas</span></div>
+    <span class="bcra-tarjeta-sub"><?= h(MEDIOS_PAGO[$medio]) ?> · <?= count($filas) ?> filas<?= isset($cuentasCobro[(int) $cuenta]) ? ' · acredita en ' . h($cuentasCobro[(int) $cuenta]['nombre']) : '' ?><?= isset($tals[(int) $talonario]) ? ' · recibos desde ' . h($tals[(int) $talonario]['proximo']) : '' ?></span></div>
   <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Se cargan</span><strong><?= num($nOk) ?></strong><span class="bcra-tarjeta-sub"><?= money($totOk) ?></span></div>
   <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Con error</span><strong><?= num(count($filas) - $nOk) ?></strong><span class="bcra-tarjeta-sub">no se cargan</span></div>
   <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Fecha por defecto</span><strong><?= h(fecha($fechaDef)) ?></strong><span class="bcra-tarjeta-sub">para filas sin fecha</span></div>
@@ -366,6 +410,8 @@ P-000027;18/11/2026;30000;RP-88214</pre>
     <input type="hidden" name="archivo_nombre" value="<?= h($nombreArchivo) ?>">
     <input type="hidden" name="medio" value="<?= h($medio) ?>">
     <input type="hidden" name="fecha" value="<?= h($fechaDef) ?>">
+    <input type="hidden" name="cuenta" value="<?= h($cuenta) ?>">
+    <input type="hidden" name="talonario" value="<?= h($talonario) ?>">
     <?= boton('Subir otro archivo', 'secondary', 'lote.php', 'volver') ?>
     <?php if ($nOk): ?><?= boton('Procesar ' . $nOk . ' pagos', 'ok', null, 'guardar', true) ?><?php endif; ?>
   </form>

@@ -14,8 +14,8 @@ Usuarios, roles, permisos y menú, y lo que necesita saber quien mantiene el sis
 | --- | --- |
 | Administrador | Todo, incluida la Administración del Sistema |
 | Gerencia | Todo lo operativo (también Vendedores, Autorizaciones y Datos de la empresa), sin la Administración del Sistema |
-| Créditos | Simulador, Solicitudes (todas), Liquidar préstamo, Préstamos, Clientes, Consulta BCRA, Pagos y caja |
-| Cobranzas | Préstamos, Clientes, Cobrar, Pagos y caja, Importar lote |
+| Créditos | Simulador, Solicitudes (todas), Liquidar préstamo, Préstamos, Clientes, Consulta BCRA, Recibos emitidos |
+| Cobranzas | Préstamos, Clientes, Cobros en efectivo, Recibos emitidos, Importar lote |
 | Inversiones | Aportes, Inversores, Cotizaciones |
 | Vendedor | Simulador, Solicitudes (solo las suyas), Clientes, Consulta BCRA |
 
@@ -67,10 +67,10 @@ Antes de que exista alguien que pueda entrar, se crea desde la consola del servi
 Pide la contraseña (vacía = genera una y la muestra). El mismo comando, con un correo que ya existe, le cambia la contraseña y lo reactiva: sirve para destrabar a un administrador que se la olvidó.
 
 ## Antes de empezar a operar
-<!-- resumen: Productos, vendedores, documentación y cotizaciones. -->
+<!-- resumen: Tipos de asociado, vendedores, documentación y cotizaciones. -->
 
-1. Cargar los **productos** y al menos una **tasa vigente** por producto (*Productos y tasas*). Sin tasa no se puede simular ni liquidar.
-2. Cargar **vendedores** y sus **reglas de comisión** (*Comisiones* → *Vendedores*).
+1. Revisar los **tipos de asociado**, con al menos una **tasa vigente** y sus **escalas de comisión** (*Tipos de asociado y tasas*). Sin tasa no se puede simular ni liquidar. Revisar las **reparticiones**.
+2. Cargar **vendedores** y, si alguno cobra distinto que la escala, sus **excepciones de comisión** (*Comisiones* → *Vendedores*).
 3. Revisar la **documentación requerida** (*Tablas y parámetros*).
 4. **Cargar histórico** de cotizaciones la primera vez (*Cotizaciones*).
 5. Hacer una consulta BCRA de prueba para confirmar que el servidor llega al BCRA.
@@ -110,7 +110,7 @@ Los documentos se guardan en `D:\financiera\documentos` y las sesiones en `D:\fi
 | Síntoma | Causa probable | Solución |
 | --- | --- | --- |
 | *No se pudo conectar con el BCRA* | Sin salida a internet hacia `api.bcra.gob.ar`, o certificado | Probar la conexión; si es error de certificado, bajar `cacert.pem` (curl.se/docs/caextract.html) y poner su ruta en `bcra_cainfo` |
-| *No hay tasa vigente para ese plazo y monto* | Falta tasa, o su rango no cubre ese plazo o monto | Cargar una tasa en *Productos y tasas* |
+| *No hay tasa vigente para ese plazo y monto* | Falta tasa, o su rango no cubre ese plazo o monto | Cargar una tasa en *Tipos de asociado y tasas* |
 | Al subir un archivo: no se cargó | Muy pesado o no es PDF / imagen | Achicarlo o convertirlo; los límites están en `config.php`, `.user.ini` y `web.config` |
 | Al subir: error de permisos | IIS no puede escribir en `documentos` | Correr `instalar_iis.ps1` o dar el permiso con `icacls` |
 | No deja ingresar a nadie y no hay error | IIS no puede escribir en `sesiones` | Ídem: permiso de modificación en la carpeta de sesiones |

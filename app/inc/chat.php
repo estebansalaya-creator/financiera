@@ -15,7 +15,7 @@ declare(strict_types=1);
 //   conversación.ultimo_mensaje_id (ver el .sql).
 //
 //   Llegada de mensajes: la pantalla consulta chat_api.php cada pocos
-//   segundos (con la conversación abierta) y el globito flotante cada 20 (el
+//   segundos (con la conversación abierta) y el botón Mensajes cada 20 (el
 //   contador). Esas consultas no cuentan como actividad: no impiden que
 //   la sesión se cierre por inactividad (FIN_SIN_ACTIVIDAD en seguridad.php).
 // ---------------------------------------------------------------------
@@ -672,7 +672,7 @@ function chat_cuando(?string $dt): string
 }
 
 /**
- * Para el globito flotante: cuántas conversaciones tienen algo sin leer (sin
+ * Para el botón Mensajes de la barra: cuántas conversaciones tienen algo sin leer (sin
  * las silenciadas) y el id del mensaje sin leer más nuevo. Con ese id
  * chat.js decide si suena: suena cuando aparece uno más nuevo que el último
  * que ya sonó (los ids de mensaje son una sola numeración para todas las

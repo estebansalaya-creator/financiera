@@ -29,7 +29,7 @@ A la izquierda están tus conversaciones, la más reciente arriba, en dos solapa
 - **Silenciar**: la conversación sigue llegando, pero no suma al número rojo del globito.
 - **Eliminar** (al pasar el mouse sobre un mensaje tuyo): los demás ven *Mensaje eliminado* y el archivo deja de estar disponible.
 - **Tildes** en tus mensajes: **✓** gris, enviado y nadie lo leyó todavía; **✓✓** azul, leído. En grupos e hilos de solicitudes, ✓✓ es que lo leyó al menos uno: pasando el mouse dice quiénes, y debajo de tu último mensaje dice *Visto por …* (o *Visto por todos*). En la ficha de la solicitud, el hilo cuenta como leído recién cuando llegás a verlo en la pantalla.
-- El globito **Mensajes** (abajo a la derecha, arriba de Ayuda) muestra cuántas conversaciones tienen algo sin leer. Se actualiza solo cada 20 segundos en cualquier pantalla y late cuando llega algo nuevo.
+- El botón **Mensajes** (en la barra de arriba, al lado de Ayuda) muestra cuántas conversaciones tienen algo sin leer. Se actualiza solo cada 20 segundos en cualquier pantalla y late cuando llega algo nuevo.
 - **Micrófono y sonido**: el navegador pide permiso para el micrófono la primera vez. Solo deja usarlo si el sistema se abre con **https** (como en Railway) o en la misma computadora del servidor; si no, el micrófono no aparece. El sonido puede no escucharse hasta que hagas el primer click en la pantalla (lo exigen los navegadores, sobre todo en el iPhone). Con la app del celular cerrada o en segundo plano no llegan avisos.
 - Tener la pantalla abierta no mantiene viva la sesión: si no usás el sistema, se cierra igual a las 8 horas.
 

@@ -31,6 +31,9 @@ const PROVINCIAS      = ['Buenos Aires', 'Ciudad Autónoma de Buenos Aires', 'Ca
 $id      = (int) get_str('id');
 $errores = [];
 $cliente = null;
+// CBU y alias llegan con sql\financiera_datos_bancarios.sql: hasta que se corra,
+// los campos no se muestran y todo lo demás sigue andando.
+$conBanco = columna_existe('clientes', 'cbu');
 
 /** Arreglo POST como lista de textos (vacía si falta o viene mal). */
 function post_lista(string $clave): array
@@ -58,12 +61,14 @@ if (es_post()) {
     $f = [
         'tipo' => post_str('tipo'), 'cuit' => cuit_limpio(post_str('cuit')), 'estado' => post_str('estado'),
         'id_vendedor' => post_str('id_vendedor'), 'condicion_iva' => post_str('condicion_iva'), 'email' => post_str('email'),
+        'id_tipo_asociado' => post_str('id_tipo_asociado'), 'id_reparticion' => post_str('id_reparticion'),
         'apellido' => mayus(post_str('apellido')), 'nombres' => mayus(post_str('nombres')), 'dni' => preg_replace('/\D/', '', post_str('dni')),
         'fecha_nac' => post_str('fecha_nac'), 'sexo' => post_str('sexo'), 'estado_civil' => post_str('estado_civil'),
         'ocupacion' => post_str('ocupacion'), 'empleador' => post_str('empleador'), 'ingreso_mensual' => post_str('ingreso_mensual'),
         'razon_social' => mayus(post_str('razon_social')), 'nombre_fantasia' => post_str('nombre_fantasia'),
         'tipo_societario' => post_str('tipo_societario'), 'actividad' => post_str('actividad'),
         'fecha_inicio' => post_str('fecha_inicio'), 'facturacion_anual' => post_str('facturacion_anual'),
+        'cbu' => cbu_limpio(post_str('cbu')), 'alias_cbu' => alias_cbu_limpio(post_str('alias_cbu')),
         'domicilios' => [], 'telefonos' => [],
     ];
     $dT = post_lista('dom_tipo');   $dC = post_lista('dom_calle'); $dN = post_lista('dom_numero');
@@ -100,6 +105,12 @@ if (es_post()) {
     if ($f['condicion_iva'] !== '' && !isset(COND_IVA[$f['condicion_iva']])) {
         $errores[] = 'La condición de IVA no es válida.';
     }
+    if ((int) $f['id_tipo_asociado'] && !q1('SELECT 1 AS x FROM tipos_asociado WHERE id_tipo_asociado = ?', [(int) $f['id_tipo_asociado']])) {
+        $errores[] = 'El tipo de asociado elegido ya no existe.';
+    }
+    if ((int) $f['id_reparticion'] && !q1('SELECT 1 AS x FROM reparticiones WHERE id_reparticion = ?', [(int) $f['id_reparticion']])) {
+        $errores[] = 'La repartición elegida ya no existe.';
+    }
     if ($f['email'] !== '' && !filter_var($f['email'], FILTER_VALIDATE_EMAIL)) {
         $errores[] = 'El email no es válido.';
     }
@@ -132,6 +143,9 @@ if (es_post()) {
             $errores[] = 'La facturación anual no es un importe válido.';
         }
     }
+    if ($conBanco) {
+        $errores = array_merge($errores, datos_bancarios_errores($f['cbu'], $f['alias_cbu']));
+    }
     foreach ($f['domicilios'] as $k => $d) {
         if ($d['calle'] === '' || $d['localidad'] === '' || !in_array($d['provincia'], PROVINCIAS, true)) {
             $errores[] = 'Domicilio ' . ($k + 1) . ': faltan la calle, la localidad o la provincia.';
@@ -151,15 +165,21 @@ if (es_post()) {
     if (!$errores) {
         $denominacion = $f['tipo'] === 'F' ? $f['apellido'] . ' ' . $f['nombres'] : $f['razon_social'];
         $vend = (int) $f['id_vendedor'] ?: null;
+        $tipoAs = (int) $f['id_tipo_asociado'] ?: null;
+        $repart = (int) $f['id_reparticion'] ?: null;
         $pdo = db();
         try {
             $pdo->beginTransaction();
             if ($id > 0) {
-                q('UPDATE clientes SET tipo=?, cuit=?, denominacion=?, email=?, condicion_iva=?, id_vendedor=?, estado=? WHERE id_cliente=?',
-                  [$f['tipo'], $f['cuit'], $denominacion, $f['email'] ?: null, $f['condicion_iva'] ?: null, $vend, $f['estado'], $id]);
+                q('UPDATE clientes SET tipo=?, cuit=?, denominacion=?, email=?, condicion_iva=?, id_vendedor=?, estado=?,
+                          id_tipo_asociado=?, id_reparticion=? WHERE id_cliente=?',
+                  [$f['tipo'], $f['cuit'], $denominacion, $f['email'] ?: null, $f['condicion_iva'] ?: null, $vend, $f['estado'],
+                   $tipoAs, $repart, $id]);
             } else {
-                q('INSERT INTO clientes (tipo, cuit, denominacion, email, condicion_iva, id_vendedor, estado, creado_por) VALUES (?,?,?,?,?,?,?,?)',
-                  [$f['tipo'], $f['cuit'], $denominacion, $f['email'] ?: null, $f['condicion_iva'] ?: null, $vend, $f['estado'], usuario_id()]);
+                q('INSERT INTO clientes (tipo, cuit, denominacion, email, condicion_iva, id_vendedor, estado, id_tipo_asociado, id_reparticion, creado_por)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)',
+                  [$f['tipo'], $f['cuit'], $denominacion, $f['email'] ?: null, $f['condicion_iva'] ?: null, $vend, $f['estado'],
+                   $tipoAs, $repart, usuario_id()]);
                 $id = (int) $pdo->lastInsertId();
             }
             if ($f['tipo'] === 'F') {
@@ -189,6 +209,9 @@ if (es_post()) {
                   [$id, isset(TIPOS_DOM[$d['tipo']]) ? $d['tipo'] : 'REAL', $d['calle'], $d['numero'] ?: null, $d['piso_depto'] ?: null,
                    $d['localidad'], $d['provincia'], $d['cp'] ?: null, $k === 0 ? 1 : 0]);
             }
+            if ($conBanco) {
+                q('UPDATE clientes SET cbu = ?, alias_cbu = ? WHERE id_cliente = ?', [$f['cbu'] ?: null, $f['alias_cbu'] ?: null, $id]);
+            }
             q('DELETE FROM telefonos WHERE id_cliente = ?', [$id]);
             foreach ($f['telefonos'] as $k => $t) {
                 q('INSERT INTO telefonos (id_cliente, tipo, numero, observacion, principal) VALUES (?,?,?,?,?)',
@@ -205,6 +228,12 @@ if (es_post()) {
                            array_merge($nums, [$id]));
                 if ($otros) {
                     $aviso = ' Ojo: el teléfono también lo tiene ' . implode(', ', array_column($otros, 'denominacion')) . '.';
+                }
+            }
+            if ($conBanco && $f['cbu'] !== '') {
+                $otros = q('SELECT denominacion FROM clientes WHERE cbu = ? AND id_cliente <> ? LIMIT 3', [$f['cbu'], $id]);
+                if ($otros) {
+                    $aviso .= ' Ojo: el CBU también es de ' . implode(', ', array_column($otros, 'denominacion')) . ': el préstamo se transfiere a una cuenta a nombre del cliente.';
                 }
             }
             flash($aviso ? 'warning' : 'ok', 'Cliente ' . $denominacion . ' guardado.' . $aviso);
@@ -231,8 +260,17 @@ if (es_post()) {
 // ---------------------------------------------------------------------
 $vendedores = [];
 $prestamos  = [];
+$tiposAsoc  = [];
+$reparts    = [];
 try {
     $vendedores = q('SELECT id_vendedor, nombre FROM vendedores WHERE activo = 1 ORDER BY nombre');
+    // Los inactivos solo si el cliente ya los tiene: no se ofrecen para uno nuevo.
+    $tiposAsoc = q('SELECT id_tipo_asociado, nombre, activo FROM tipos_asociado
+                     WHERE activo = 1 OR id_tipo_asociado = (SELECT id_tipo_asociado FROM clientes WHERE id_cliente = ?) ORDER BY nombre', [$id]);
+    $reparts = q('SELECT r.id_reparticion, r.nombre, o.nombre AS organismo, r.activo FROM reparticiones r
+                   LEFT JOIN organismos o ON o.id_organismo = r.id_organismo
+                   WHERE r.activo = 1 OR r.id_reparticion = (SELECT id_reparticion FROM clientes WHERE id_cliente = ?)
+                   ORDER BY o.nombre IS NULL, o.nombre, r.nombre', [$id]);
     if ($id > 0) {
         $cliente = q1('SELECT c.*, cp.apellido, cp.nombres, cp.dni, cp.fecha_nac, cp.sexo, cp.estado_civil, cp.ocupacion,
                               cp.empleador, cp.ingreso_mensual, ce.razon_social, ce.nombre_fantasia, ce.tipo_societario,
@@ -244,8 +282,8 @@ try {
         if ($cliente) {
             $cliente['domicilios'] = q('SELECT * FROM domicilios WHERE id_cliente = ? ORDER BY principal DESC, id_domicilio', [$id]);
             $cliente['telefonos']  = q('SELECT * FROM telefonos WHERE id_cliente = ? ORDER BY principal DESC, id_telefono', [$id]);
-            $prestamos = q('SELECT p.id_prestamo, p.nro_prestamo, p.fecha_liquidacion, p.capital, p.plazo, p.valor_cuota, p.estado, pr.nombre AS producto
-                              FROM prestamos p JOIN productos pr ON pr.id_producto = p.id_producto
+            $prestamos = q('SELECT p.id_prestamo, p.nro_prestamo, p.fecha_liquidacion, p.capital, p.plazo, p.valor_cuota, p.estado, ta.nombre AS tipo_asociado
+                              FROM prestamos p JOIN tipos_asociado ta ON ta.id_tipo_asociado = p.id_tipo_asociado
                              WHERE p.id_cliente = ? ORDER BY p.fecha_liquidacion DESC, p.id_prestamo DESC', [$id]);
         }
     }
@@ -311,10 +349,13 @@ $v = $form ?? ($cliente ? array_merge($cliente, [
     'ingreso_mensual' => monto_campo($cliente['ingreso_mensual']),
     'facturacion_anual' => monto_campo($cliente['facturacion_anual']),
     'id_vendedor' => (string) $cliente['id_vendedor'],
+    'id_tipo_asociado' => (string) $cliente['id_tipo_asociado'], 'id_reparticion' => (string) $cliente['id_reparticion'],
 ]) : ['tipo' => 'F', 'cuit' => '', 'estado' => 'ACTIVO', 'id_vendedor' => '', 'condicion_iva' => 'CF', 'email' => '',
+      'id_tipo_asociado' => '', 'id_reparticion' => '',
       'apellido' => '', 'nombres' => '', 'dni' => '', 'fecha_nac' => '', 'sexo' => '', 'estado_civil' => '', 'ocupacion' => '',
       'empleador' => '', 'ingreso_mensual' => '', 'razon_social' => '', 'nombre_fantasia' => '', 'tipo_societario' => '',
-      'actividad' => '', 'fecha_inicio' => '', 'facturacion_anual' => '', 'domicilios' => [], 'telefonos' => []]);
+      'actividad' => '', 'fecha_inicio' => '', 'facturacion_anual' => '', 'cbu' => '', 'alias_cbu' => '',
+      'domicilios' => [], 'telefonos' => []]);
 $doms = $v['domicilios'] ?: [['tipo' => 'REAL', 'calle' => '', 'numero' => '', 'piso_depto' => '', 'localidad' => '', 'provincia' => 'Buenos Aires', 'cp' => '']];
 $tels = $v['telefonos'] ?: [['tipo' => 'CELULAR', 'numero' => '', 'observacion' => '']];
 $esF  = $v['tipo'] !== 'J';
@@ -400,6 +441,31 @@ function renglon_telefono(array $t): string
           <label for="email">Email</label>
           <input type="email" id="email" name="email" value="<?= h($v['email'] ?? '') ?>" maxlength="150">
         </div>
+        <div class="campo" style="--span:4">
+          <label for="id_tipo_asociado">Tipo de asociado</label>
+          <select id="id_tipo_asociado" name="id_tipo_asociado">
+            <option value="">—</option>
+            <?php foreach ($tiposAsoc as $t): ?>
+              <option value="<?= (int) $t['id_tipo_asociado'] ?>" <?= (string) $t['id_tipo_asociado'] === (string) ($v['id_tipo_asociado'] ?? '') ? 'selected' : '' ?>><?= h($t['nombre']) ?><?= (int) $t['activo'] ? '' : ' (inactivo)' ?></option>
+            <?php endforeach; ?>
+          </select>
+          <span class="campo-ayuda">el habitual: la solicitud lo trae y se puede cambiar</span>
+        </div>
+        <div class="campo" style="--span:4">
+          <label for="id_reparticion">Repartición</label>
+          <select id="id_reparticion" name="id_reparticion">
+            <option value="">—</option>
+            <?php $grupo = false; foreach ($reparts as $rp):
+                $org = (string) ($rp['organismo'] ?? '');
+                if ($grupo === false || $org !== $grupo): ?>
+              <?= $grupo !== false ? '</optgroup>' : '' ?><optgroup label="<?= h($org !== '' ? $org : 'Otras') ?>">
+            <?php $grupo = $org; endif; ?>
+                <option value="<?= (int) $rp['id_reparticion'] ?>" <?= (string) $rp['id_reparticion'] === (string) ($v['id_reparticion'] ?? '') ? 'selected' : '' ?>><?= h($rp['nombre']) ?><?= (int) $rp['activo'] ? '' : ' (inactiva)' ?></option>
+            <?php endforeach; ?>
+            <?= $grupo !== false ? '</optgroup>' : '' ?>
+          </select>
+          <span class="campo-ayuda">dónde cobra</span>
+        </div>
       </div>
     </div>
 
@@ -447,6 +513,15 @@ function renglon_telefono(array $t): string
           <span class="campo-ayuda">$</span></div>
       </div>
     </fieldset>
+
+    <?php if ($conBanco): ?>
+    <div class="bloque">
+      <div class="bloque-titulo">Datos bancarios</div>
+      <div class="campos">
+        <?= campos_datos_bancarios($v['cbu'] ?? '', $v['alias_cbu'] ?? '', 'de una cuenta a nombre del cliente: ahí se le transfiere el préstamo') ?>
+      </div>
+    </div>
+    <?php endif; ?>
   </div>
 
   <div class="card">
@@ -538,14 +613,15 @@ function renglon_telefono(array $t): string
       </div>
     </form>
 
+    <?= barra_local('cliente.php?id=' . (int) $id, 'Documento, archivo u observación…') ?>
     <div class="data-table-wrap">
-      <table class="data-table" data-sin-orden>
+      <table class="data-table" data-local data-paginada data-unidad="documento|documentos">
         <thead>
           <tr>
             <th class="col-acciones" data-no-sort>Acciones</th>
-            <th data-no-sort>Documento</th><th data-no-sort>Archivo</th>
-            <th data-no-sort>Emisión</th><th data-no-sort>Vencimiento</th>
-            <th data-no-sort>Cargado el</th><th data-no-sort>Observación</th>
+            <th>Documento</th><th>Archivo</th>
+            <th>Emisión</th><th>Vencimiento</th>
+            <th>Cargado el</th><th data-no-sort>Observación</th>
           </tr>
         </thead>
         <tbody>
@@ -584,16 +660,17 @@ function renglon_telefono(array $t): string
               <?php if ($baja): ?><span class="segunda-linea">Dado de baja el <?= h(fecha($d['baja_el'])) ?></span><?php endif; ?></td>
             <td><a href="documento.php?id=<?= (int) $d['id_documento'] ?>" target="_blank" rel="noopener"><?= h($d['nombre_original']) ?></a>
               <span class="segunda-linea"><?= h(strtoupper((string) array_search($d['mime'], DOC_TIPOS_ARCHIVO, true))) ?> · <?= h(bytes_txt((int) $d['bytes'])) ?></span></td>
-            <td><?= h(fecha($d['fecha_emision'])) ?></td>
-            <td><?= $d['fecha_vencimiento'] === null ? '<span class="td-muted">—</span>'
+            <td data-orden="<?= h((string) $d['fecha_emision']) ?>"><?= h(fecha($d['fecha_emision'])) ?></td>
+            <td data-orden="<?= h((string) $d['fecha_vencimiento']) ?>"><?= $d['fecha_vencimiento'] === null ? '<span class="td-muted">—</span>'
                     : ($vencido && !$baja ? estado('Venció el ' . fecha($d['fecha_vencimiento']), 'warn') : h(fecha($d['fecha_vencimiento']))) ?></td>
-            <td><?= h(date('d/m/Y H:i', strtotime($d['subido_el']))) ?></td>
+            <td data-orden="<?= h((string) $d['subido_el']) ?>"><?= h(date('d/m/Y H:i', strtotime($d['subido_el']))) ?></td>
             <td class="td-wrap"><?= h($d['observacion'] ?? '') ?></td>
           </tr>
         <?php endforeach; ?>
         </tbody>
       </table>
     </div>
+    <?= paginacion_local() ?>
   <?php endif; ?>
 </div>
 
@@ -631,35 +708,39 @@ function renglon_telefono(array $t): string
 </div>
 
 <div class="card">
-  <?= card_head('Préstamos', count($prestamos) ? count($prestamos) . ' préstamos' : '',
+  <?= card_head('Préstamos', '',
         puede('solicitudes.php') ? boton('Nueva solicitud', 'primary', 'solicitud.php?cliente=' . (int) $id, 'agregar', false, true) : '') ?>
+  <?= barra_local('cliente.php?id=' . (int) $id, 'Número, tipo o estado…') ?>
   <div class="data-table-wrap">
-    <table class="data-table" data-sin-orden>
+    <table class="data-table" data-local data-paginada data-unidad="préstamo|préstamos">
       <thead>
         <tr>
-          <th data-no-sort>N°</th><th data-no-sort>Liquidación</th><th data-no-sort>Producto</th>
-          <th class="th-right" data-no-sort>Capital</th><th class="th-right" data-no-sort>Cuotas</th>
-          <th class="th-right" data-no-sort>Cuota</th><th data-no-sort>Estado</th>
+          <th class="col-acciones" data-no-sort>Acciones</th>
+          <th>N°</th><th>Liquidación</th><th>Tipo de asociado</th>
+          <th class="th-right">Capital</th><th class="th-right">Cuotas</th>
+          <th class="th-right">Cuota</th><th>Estado</th>
         </tr>
       </thead>
       <tbody>
       <?php if (!$prestamos): ?>
-        <tr><td colspan="7" class="no-data">Sin préstamos.</td></tr>
+        <tr><td colspan="8" class="no-data">Sin préstamos.</td></tr>
       <?php endif; ?>
       <?php foreach ($prestamos as $p): ?>
-        <tr>
+        <tr<?= $p['estado'] === 'ANULADO' ? ' class="fila-baja"' : '' ?>>
+          <td><div class="acciones"><?= btn_accion('ver', 'prestamo.php?id=' . (int) $p['id_prestamo'], 'Ver el préstamo') ?></div></td>
           <td class="mono td-fuerte"><a href="prestamo.php?id=<?= (int) $p['id_prestamo'] ?>"><?= h($p['nro_prestamo']) ?></a></td>
-          <td><?= h(fecha($p['fecha_liquidacion'])) ?></td>
-          <td><?= h($p['producto']) ?></td>
-          <td class="td-right"><?= money($p['capital']) ?></td>
+          <td data-orden="<?= h((string) $p['fecha_liquidacion']) ?>"><?= h(fecha($p['fecha_liquidacion'])) ?></td>
+          <td><?= h($p['tipo_asociado']) ?></td>
+          <td class="td-right" data-orden="<?= (float) $p['capital'] ?>"><?= money($p['capital']) ?></td>
           <td class="td-right"><?= (int) $p['plazo'] ?></td>
-          <td class="td-right"><?= money($p['valor_cuota']) ?></td>
+          <td class="td-right" data-orden="<?= (float) $p['valor_cuota'] ?>"><?= money($p['valor_cuota']) ?></td>
           <td><?= estado(ucfirst(strtolower($p['estado'])), ['VIGENTE' => 'info', 'CANCELADO' => 'ok', 'LEGALES' => 'danger', 'ANULADO' => 'neutro'][$p['estado']] ?? 'neutro') ?></td>
         </tr>
       <?php endforeach; ?>
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 <?php endif; ?>
 

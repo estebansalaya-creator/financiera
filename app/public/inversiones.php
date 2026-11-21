@@ -95,7 +95,7 @@ $hayFiltros = $fQ !== '' || $fEstado !== 'VIGENTE' || $fMoneda !== '' || $fMod !
 
 layout_inicio('Inversiones', 'inversiones');
 titulo('Inversiones', 'Aportes de capital de los inversores y liquidación de intereses',
-       boton('Exportar a Excel', 'excel', url_con(['export' => 'xlsx']), 'planilla')
+       ''
      . boton('Inversores', 'secondary', 'inversores.php', 'grupo')
      . boton('Nuevo aporte', 'primary', 'inversion.php?nueva=1', 'agregar'));
 mensajes($errores);
@@ -121,28 +121,30 @@ mensajes($errores);
 
 <?php if ($aPagar): ?>
 <div class="card">
-  <?= card_head('Liquidaciones a pagar', count($aPagar) . ' pendientes') ?>
+  <?= card_head('Liquidaciones a pagar') ?>
+  <?= barra_local('inversiones.php', 'Aporte o inversor…', '', false, null) ?>
   <div class="data-table-wrap">
-    <table class="data-table" data-sin-orden>
-      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th data-no-sort>Fecha</th><th data-no-sort>Aporte</th><th data-no-sort>Inversor</th>
-        <th class="th-right" data-no-sort>Capital</th><th class="th-right" data-no-sort>Interés</th><th class="th-right" data-no-sort>A pagar</th></tr></thead>
+    <table class="data-table" data-local data-paginada data-unidad="liquidación|liquidaciones">
+      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Fecha</th><th>Aporte</th><th>Inversor</th>
+        <th class="th-right">Capital</th><th class="th-right">Interés</th><th class="th-right">A pagar</th></tr></thead>
       <tbody>
       <?php foreach ($aPagar as $l): ?>
         <tr>
           <td><div class="acciones"><?= btn_accion('ver', 'inversion.php?id=' . $l['id_inversion'] . '#liquidaciones', 'Ver y registrar el pago') ?>
             <?= btn_accion('pdf', 'inversion.php?id=' . $l['id_inversion'] . '&liq=' . $l['id_liquidacion'] . '&export=pdf', 'Liquidación en PDF', true) ?></div></td>
-          <td><?= h(fecha($l['fecha'])) ?></td>
+          <td data-orden="<?= h((string) $l['fecha']) ?>"><?= h(fecha($l['fecha'])) ?></td>
           <td class="mono"><?= h($l['nro_inversion']) ?></td>
           <td><?= h($l['denominacion']) ?></td>
-          <td class="td-right"><?= dinero($l['capital'], $l['moneda']) ?></td>
-          <td class="td-right"><?= dinero($l['interes'], $l['moneda']) ?></td>
-          <td class="td-right td-fuerte"><?= dinero($l['a_pagar'], $l['moneda']) ?><?=
+          <td class="td-right" data-orden="<?= (float) $l['capital'] ?>"><?= dinero($l['capital'], $l['moneda']) ?></td>
+          <td class="td-right" data-orden="<?= (float) $l['interes'] ?>"><?= dinero($l['interes'], $l['moneda']) ?></td>
+          <td class="td-right td-fuerte" data-orden="<?= (float) $l['a_pagar'] ?>"><?= dinero($l['a_pagar'], $l['moneda']) ?><?=
             $l['moneda'] !== 'ARS' ? '<span class="segunda-linea">' . h(equiv_pesos($l['a_pagar'], $l['moneda'], $l['cotizacion'])) . ' al ' . h(fecha($l['fecha'])) . '</span>' : '' ?></td>
         </tr>
       <?php endforeach; ?>
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 <?php endif; ?>
 
@@ -159,15 +161,11 @@ mensajes($errores);
       <select name="modalidad" class="filtro <?= $fMod !== '' ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(MODALIDADES, $fMod, 'Todas') ?></select></label>
     <label class="filtro-campo"><span class="filtro-lbl">Vencimiento</span>
       <select name="vto" class="filtro <?= $fVto !== '' ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(FILTRO_VTO, $fVto, 'Todos') ?></select></label>
-    <button type="submit" class="btn btn-primary btn-sm"><?= icono('filtro') ?>Filtrar</button>
-    <?php if ($hayFiltros): ?><a class="btn btn-secondary btn-sm" href="inversiones.php"><?= icono('quitar_filtro') ?>Quitar filtro</a><?php endif; ?>
-    <span class="filter-count" style="margin-left:auto"><?= count($filas) ?> aportes</span>
+    <?= filtro_botones('inversiones.php', $hayFiltros) ?>
+    <?= filtro_fin_local(url_con(['export' => 'xlsx'])) ?>
   </form>
-</div>
-
-<div class="card">
   <div class="data-table-wrap">
-    <table class="data-table">
+    <table class="data-table" data-paginada data-unidad="aporte|aportes">
       <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>N°</th><th>Inversor</th><th>Modalidad</th>
         <th>Inicio</th><th>Vencimiento</th><th class="th-right">Capital</th><th>Condición</th>
         <th class="th-right">Devengado a hoy</th><th class="th-right">Al vencimiento</th><th>Estado</th></tr></thead>
@@ -195,6 +193,7 @@ mensajes($errores);
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 
 <?php layout_fin(); ?>

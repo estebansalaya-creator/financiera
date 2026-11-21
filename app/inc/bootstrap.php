@@ -45,6 +45,17 @@ function cfg(string $clave, $default = null)
     return $GLOBALS['CFG'][$clave] ?? $default;
 }
 
+// IIS (FastCGI): si PHP no tiene error_log, lo que se registra (un aviso, un
+// error_log() de la aplicación) sale por stderr e IIS contesta un error 500
+// con ese texto en lugar de la página. Va a documentos\logs\php_errores.log.
+if (PHP_SAPI === 'cgi-fcgi' && (string) ini_get('error_log') === '') {
+    $logDir = rtrim((string) cfg('docs_dir', dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'documentos'), '\\/') . DIRECTORY_SEPARATOR . 'logs';
+    if (is_dir($logDir) || @mkdir($logDir, 0770, true)) {
+        ini_set('error_log', $logDir . DIRECTORY_SEPARATOR . 'php_errores.log');
+    }
+    unset($logDir);
+}
+
 function db(): PDO
 {
     static $pdo = null;
@@ -61,7 +72,8 @@ function db(): PDO
             PDO::ATTR_EMULATE_PREPARES   => false,
             // La base trabaja en hora argentina, igual que PHP: en Railway el servidor
             // está en UTC y NOW() / CURDATE() darían tres horas (o un día) de más.
-            PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '-03:00'",
+            // PHP 8.5 declara obsoleta PDO::MYSQL_ATTR_INIT_COMMAND (y con IIS el aviso reemplaza la página): la nueva si existe.
+            (defined('Pdo\\Mysql::ATTR_INIT_COMMAND') ? \Pdo\Mysql::ATTR_INIT_COMMAND : PDO::MYSQL_ATTR_INIT_COMMAND) => "SET time_zone = '-03:00'",
         ]);
     }
     return $pdo;
@@ -186,6 +198,7 @@ function error_amigable(Throwable $e): string
  *   - SIGNAL '45000' de un procedure: su texto tal cual («No hay tasa vigente…»).
  *   - Clave duplicada (1062): el texto de $duplicados según el nombre del índice.
  *   - Clave foránea (1451/1452): que está en uso o que falta el dato relacionado.
+ *   - Deadlock (1213) o espera de bloqueo vencida (1205): que se pruebe de nuevo.
  */
 function mensaje_bd(Throwable $e, array $duplicados = []): string
 {
@@ -206,8 +219,15 @@ function mensaje_bd(Throwable $e, array $duplicados = []): string
         if ($cod === 1451) {
             return 'No se puede borrar: está en uso.';
         }
+        if ($cod === 1213 || $cod === 1205) {
+            // 1213: dos operaciones se esperaban una a la otra y la base deshizo
+            // esta. 1205: esperó más de lo permitido a que otra terminara. En los
+            // dos casos no se grabó nada y se puede volver a intentar.
+            error_log('[financiera] ' . $m);
+            return 'Otra persona estaba grabando lo mismo en ese momento y no se guardó nada. Probá de nuevo.';
+        }
         if ($cod === 1452) {
-            return 'Falta un dato relacionado (por ejemplo, el vendedor o el producto elegido ya no existe).';
+            return 'Falta un dato relacionado (por ejemplo, el vendedor o el tipo de asociado elegido ya no existe).';
         }
     }
     return error_amigable($e);

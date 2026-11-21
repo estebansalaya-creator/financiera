@@ -34,10 +34,12 @@ const PAGINAS_PERMISO = [
     'cliente.php'   => ['clientes.php'],
     'solicitud.php' => ['solicitudes.php', 'autorizaciones.php'],
     'documento.php' => ['clientes.php'],
-    'prestamo.php'  => ['prestamos.php', 'cobrar.php', 'cobranzas.php'],
-    'recibo.php'    => ['cobranzas.php', 'cobrar.php'],
+    'prestamo.php'  => ['prestamos.php', 'cobrar.php', 'cobranzas.php', 'emision_recibos.php'],
+    'recibo.php'    => ['cobranzas.php', 'cobrar.php', 'emision_recibos.php'],
     'inversion.php' => ['inversiones.php'],
     'inversor.php'  => ['inversores.php', 'inversiones.php'],
+    // La dirección vieja de los tipos de asociado: solo redirige.
+    'productos.php' => ['tipos_asociado.php'],
     // Mensajes: el chat con «Mensajes»; el hilo de una solicitud, con lo que abre la solicitud.
     // Cada acción vuelve a controlar lo suyo (inc/chat.php).
     'chat_api.php'     => ['chat.php', 'solicitudes.php', 'autorizaciones.php'],

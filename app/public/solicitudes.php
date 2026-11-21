@@ -39,6 +39,10 @@ $tot = ['n' => 0, 'monto' => 0];
 $cuenta = [];
 $paginas = 1;
 $vendedores = [];
+// Orden por encabezado (en la base); por defecto, las que están en curso primero.
+$orden = orden_grilla(['curso' => "FIELD(s.estado, 'OBSERVADA', 'PENDIENTE', 'APROBADA') = 0", 'nro' => 's.id_solicitud',
+                       'fecha' => 's.creado_el', 'cliente' => 'c.denominacion', 'tipo' => 'ta.nombre', 'monto' => 's.monto',
+                       'plazo' => 's.plazo', 'cuota' => 's.valor_cuota', 'estado' => 's.estado'], 'curso', 'asc', 's.id_solicitud DESC');
 try {
     $todas   = sol_ve_todas();
     $liquida = sol_liquida();
@@ -77,12 +81,12 @@ try {
     $desde = "FROM solicitudes s
               JOIN clientes c ON c.id_cliente = s.id_cliente
               LEFT JOIN clientes_personas cp ON cp.id_cliente = c.id_cliente
-              JOIN productos pr ON pr.id_producto = s.id_producto
+              JOIN tipos_asociado ta ON ta.id_tipo_asociado = s.id_tipo_asociado
               LEFT JOIN vendedores v ON v.id_vendedor = s.id_vendedor
               LEFT JOIN usuarios uc ON uc.id_usuario = s.creado_por
               LEFT JOIN usuarios ur ON ur.id_usuario = s.resuelto_por
               LEFT JOIN prestamos p ON p.id_prestamo = s.id_prestamo";
-    $columnas = "s.*, c.denominacion, c.cuit, pr.nombre AS producto, v.nombre AS vendedor, uc.nombre AS creado_por_nombre,
+    $columnas = "s.*, c.denominacion, c.cuit, ta.nombre AS tipo_asociado, v.nombre AS vendedor, uc.nombre AS creado_por_nombre,
                  ur.nombre AS resuelto_por_nombre, p.nro_prestamo";
 
     $vendedores = $todas ? q('SELECT id_vendedor, nombre FROM vendedores ORDER BY nombre') : [];
@@ -93,16 +97,16 @@ try {
 
     if (get_str('export') === 'xlsx') {
         require_once __DIR__ . '/../inc/xlsx.php';
-        $lista = q("SELECT $columnas $desde WHERE $where ORDER BY s.id_solicitud DESC", $params);
+        $lista = q("SELECT $columnas $desde WHERE $where ORDER BY {$orden['sql']}", $params);
         $libro = new XlsxLibro();
         $libro->hoja('Solicitudes')->titulo('Solicitudes de préstamo', num($tot['n']) . ' solicitudes · generado el ' . date('d/m/Y H:i'))
             ->tabla(
                 [['N°', 'texto', 11], ['Cargada', 'fecha', 12], ['Cliente', 'texto', 32], ['CUIT/CUIL', 'texto', 15],
-                 ['Producto', 'texto', 20], ['Vendedor', 'texto', 20], ['Monto', 'moneda', 15], ['Cuotas', 'entero', 8],
+                 ['Tipo de asociado', 'texto', 20], ['Vendedor', 'texto', 20], ['Monto', 'moneda', 15], ['Cuotas', 'entero', 8],
                  ['Cuota', 'moneda', 14], ['Estado', 'texto', 12], ['Cargó', 'texto', 20], ['Resolvió', 'texto', 20],
                  ['Resuelta', 'fecha', 12], ['Comentario', 'texto', 40], ['Préstamo', 'texto', 11]],
                 array_map(function ($s) {
-                    return [$s['nro_solicitud'], substr((string) $s['creado_el'], 0, 10), $s['denominacion'], cuit_fmt($s['cuit']), $s['producto'],
+                    return [$s['nro_solicitud'], substr((string) $s['creado_el'], 0, 10), $s['denominacion'], cuit_fmt($s['cuit']), $s['tipo_asociado'],
                             $s['vendedor'], $s['monto'], $s['plazo'], $s['valor_cuota'], ESTADOS_SOLICITUD[$s['estado']] ?? $s['estado'],
                             $s['creado_por_nombre'], $s['resuelto_por_nombre'], $s['resuelto_el'] ? substr((string) $s['resuelto_el'], 0, 10) : null,
                             $s['resolucion'], $s['nro_prestamo']];
@@ -116,7 +120,7 @@ try {
     $paginas = max(1, (int) ceil($tot['n'] / $porPag));
     $pagina  = min($pagina, $paginas);
     $filas = q("SELECT $columnas $desde WHERE $where
-                 ORDER BY FIELD(s.estado, 'OBSERVADA', 'PENDIENTE', 'APROBADA') = 0, s.id_solicitud DESC LIMIT ? OFFSET ?",
+                 ORDER BY {$orden['sql']} LIMIT ? OFFSET ?",
                array_merge($params, [$porPag, ($pagina - 1) * $porPag]));
 } catch (Throwable $e) {
     $errores[] = $e instanceof PDOException && (int) ($e->errorInfo[1] ?? 0) === 1146
@@ -130,7 +134,6 @@ $m = function (string $e) use ($cuenta): float { return (float) ($cuenta[$e]['mo
 layout_inicio('Solicitudes', '');
 titulo('Solicitudes de préstamo', $todas ? 'Se cargan, las autoriza Gerencia y después se liquidan' : 'Las que cargaste y cómo van',
        boton('Instructivo', 'pdf', 'solicitudes.php?instructivo=pdf', 'pdf', false, false, ['target' => '_blank', 'rel' => 'noopener', 'title' => 'Cómo cargar una solicitud y qué documentación pedir, en PDF'])
-     . boton('Exportar a Excel', 'excel', url_con(['export' => 'xlsx', 'p' => null]), 'planilla')
      . boton('Nueva solicitud', 'primary', 'solicitud.php', 'agregar'));
 mensajes($errores);
 ?>
@@ -144,6 +147,7 @@ mensajes($errores);
 
 <div class="card">
   <form method="get" class="filter-bar">
+    <?= orden_ocultos() ?>
     <label class="filtro-campo filtro-buscar"><span class="filtro-lbl">Buscar</span>
       <input type="search" name="q" value="<?= h($fQ) ?>" class="filter-input <?= $fQ !== '' ? 'activo' : '' ?>" placeholder="N°, cliente, CUIT o DNI…" maxlength="60"></label>
     <label class="filtro-campo"><span class="filtro-lbl">Estado</span>
@@ -153,26 +157,21 @@ mensajes($errores);
       <select name="vendedor" class="filtro <?= $fVend ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $fVend ?: '', 'Todos') ?></select></label>
     <?php endif; ?>
     <label class="filtro-campo"><span class="filtro-lbl">Desde</span>
-      <input type="date" name="desde" value="<?= h($fDesde) ?>" class="filter-input <?= $fDesde !== '' ? 'activo' : '' ?>"></label>
+      <input type="date" name="desde" value="<?= h($fDesde) ?>" class="filtro <?= $fDesde !== '' ? 'activo' : '' ?>"></label>
     <label class="filtro-campo"><span class="filtro-lbl">Hasta</span>
-      <input type="date" name="hasta" value="<?= h($fHasta) ?>" class="filter-input <?= $fHasta !== '' ? 'activo' : '' ?>"></label>
-    <?php if ($porPag !== 50): ?><input type="hidden" name="per_page" value="<?= $porPag ?>"><?php endif; ?>
-    <button type="submit" class="btn btn-primary btn-sm"><?= icono('filtro') ?>Filtrar</button>
-    <?php if ($hayFiltros): ?>
-      <a class="btn btn-secondary btn-sm" href="solicitudes.php"><?= icono('quitar_filtro') ?>Quitar filtro</a>
-    <?php endif; ?>
+      <input type="date" name="hasta" value="<?= h($fHasta) ?>" class="filtro <?= $fHasta !== '' ? 'activo' : '' ?>"></label>
+    <?= filtro_botones('solicitudes.php', $hayFiltros) ?>
+    <?= filtro_fin(['total' => (int) $tot['n'], 'pagina' => $pagina, 'por_pagina' => $porPag, 'unidad' => 'solicitudes',
+                    'excel' => url_con(['export' => 'xlsx', 'p' => null]), 'filas' => true]) ?>
   </form>
-</div>
-
-<div class="card">
   <div class="data-table-wrap">
-    <table class="data-table" data-sin-orden>
+    <table class="data-table" data-sin-paginar>
       <thead>
         <tr>
           <th class="col-acciones" data-no-sort>Acciones</th>
-          <th data-no-sort>N°</th><th data-no-sort>Cargada</th><th data-no-sort>Cliente</th><th data-no-sort>Producto</th>
-          <th class="th-right" data-no-sort>Monto</th><th class="th-right" data-no-sort>Cuotas</th><th class="th-right" data-no-sort>Cuota</th>
-          <th data-no-sort>Estado</th><th data-no-sort>Resolución</th>
+          <?= th_orden('N°', 'nro', $orden) ?><?= th_orden('Cargada', 'fecha', $orden) ?><?= th_orden('Cliente', 'cliente', $orden) ?><?= th_orden('Tipo de asociado', 'tipo', $orden) ?>
+          <?= th_orden('Monto', 'monto', $orden, 'th-right') ?><?= th_orden('Cuotas', 'plazo', $orden, 'th-right') ?><?= th_orden('Cuota', 'cuota', $orden, 'th-right') ?>
+          <?= th_orden('Estado', 'estado', $orden) ?><th data-no-sort>Resolución</th>
         </tr>
       </thead>
       <tbody>
@@ -190,7 +189,7 @@ mensajes($errores);
           <td><?= h(fecha(substr((string) $s['creado_el'], 0, 10))) ?><span class="segunda-linea"><?= h((string) $s['creado_por_nombre']) ?></span></td>
           <td><?= h($s['denominacion']) ?>
             <span class="segunda-linea mono"><?= h(cuit_fmt($s['cuit'])) ?><?= $s['vendedor'] ? ' · ' . h($s['vendedor']) : '' ?></span></td>
-          <td><?= h($s['producto']) ?></td>
+          <td><?= h($s['tipo_asociado']) ?></td>
           <td class="td-right"><?= money($s['monto']) ?></td>
           <td class="td-right"><?= (int) $s['plazo'] ?></td>
           <td class="td-right"><?= money($s['valor_cuota']) ?></td>

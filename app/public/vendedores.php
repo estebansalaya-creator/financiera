@@ -3,26 +3,27 @@ declare(strict_types=1);
 
 require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
+require __DIR__ . '/../inc/comisiones_escalas.php';
 
 // ---------------------------------------------------------------------
-// Vendedores: alta, edición, baja y sus reglas de comisión.
+// Vendedores: alta, edición, baja y sus excepciones de comisión.
 //   - El código es el que figura en las planillas de comisiones (ALONSO,
 //     AMTAE…): único y en mayúsculas.
 //   - Un vendedor que tiene clientes, préstamos o comisiones no se
 //     elimina: se da de baja (deja de ofrecerse al cargar un cliente o un
 //     préstamo, y lo que tiene sigue a su nombre).
-//   - Las reglas de comisión de la solapa son las suyas (comision_reglas
-//     con su id_vendedor). La comisión se congela en cada préstamo al
-//     liquidarlo: cambiar una regla no toca lo ya liquidado.
+//   - La comisión sale de la escala del tipo de asociado, la misma para
+//     todos (tipos_asociado.php). La solapa de comisiones tiene las
+//     excepciones del vendedor (comision_reglas con su id_vendedor): si una
+//     cubre el tipo y el monto del préstamo, gana sobre la general. La
+//     comisión se congela en cada préstamo al liquidarlo: cambiar una
+//     escala no toca lo ya liquidado (inc/comisiones_escalas.php).
 // ---------------------------------------------------------------------
 
 const VINCULOS = ['COMISIONISTA' => 'Comisionista', 'EMPLEADO' => 'Empleado'];
-const BASES    = ['CAPITAL' => 'Capital', 'NETO_DESEMBOLSO' => 'Neto desembolsado'];
-const TM       = ['' => 'Cualquiera', '1' => 'Sí', '0' => 'No'];
 
 $errores = [];
 $reg = null;
-$reglasForm = null;
 
 // El celular del vendedor llega con sql\financiera_telefonos.sql: hasta que se
 // corra, el campo no se muestra y todo lo demás sigue andando.
@@ -31,15 +32,12 @@ try {
     $conTel = (bool) q("SHOW COLUMNS FROM vendedores LIKE 'telefono'");
 } catch (Throwable $e) {
 }
-$id = (int) (es_post() ? post_str('id') : get_str('edit'));
+// CBU y alias, con sql\financiera_datos_bancarios.sql (mismo criterio que el celular).
+$conBanco = columna_existe('vendedores', 'cbu');
+$id = (int) (post_str('id') ?: get_str('edit'));          // las acciones de las excepciones vienen en la URL
 $solapa = get_str('solapa') === 'comisiones' ? 'comisiones' : 'datos';
-
-/** Arreglo POST como lista de textos. */
-function post_lista(string $clave): array
-{
-    $v = $_POST[$clave] ?? [];
-    return is_array($v) ? array_map(function ($x) { return is_string($x) ? trim($x) : ''; }, $v) : [];
-}
+$fExc = in_array(get_str('exc'), ['0', 'todas'], true) ? get_str('exc') : '1';   // las excepciones: activas, de baja o todas
+$escalaForm = null;
 
 /** Dónde figura un vendedor (lo que impide eliminarlo). */
 function usos_vendedor(int $id): array
@@ -92,7 +90,7 @@ if (es_post()) {
             q('DELETE FROM comision_reglas WHERE id_vendedor = ?', [$id]);
             q('DELETE FROM vendedores WHERE id_vendedor = ?', [$id]);
             $pdo->commit();
-            flash('ok', '«' . $actual['nombre'] . '» eliminado, con sus reglas de comisión.');
+            flash('ok', '«' . $actual['nombre'] . '» eliminado, con sus excepciones de comisión.');
         }
         redirigir('vendedores.php');
     }
@@ -109,7 +107,12 @@ if (es_post()) {
                 'id_usuario' => (int) post_str('id_usuario') ?: null,
                 'fecha_alta' => leer_fecha(post_str('fecha_alta')),
                 'telefono' => post_str('telefono'),
+                'cbu' => cbu_limpio(post_str('cbu')),
+                'alias_cbu' => alias_cbu_limpio(post_str('alias_cbu')),
                 'activo' => post_str('activo') === '1' ? 1 : 0];
+        if ($conBanco) {
+            $errores = array_merge($errores, datos_bancarios_errores($reg['cbu'], $reg['alias_cbu']));
+        }
         $tel = null;
         if ($conTel && $reg['telefono'] !== '') {
             $tel = tel_normalizar($reg['telefono'], true);
@@ -171,9 +174,13 @@ if (es_post()) {
                 if ($conTel) {
                     q('UPDATE vendedores SET telefono = ? WHERE id_vendedor = ?', [$tel, $id]);
                 }
+                if ($conBanco) {
+                    q('UPDATE vendedores SET cbu = ?, alias_cbu = ? WHERE id_vendedor = ?', [$reg['cbu'] ?: null, $reg['alias_cbu'] ?: null, $id]);
+                }
                 $pdo->commit();
-                flash('ok', '«' . $reg['nombre'] . '» ' . ($reg['id_vendedor'] ? 'guardado.' : 'dado de alta. Cargale sus reglas de comisión.'));
-                redirigir('vendedores.php?edit=' . $id . ($reg['id_vendedor'] ? '' : '&solapa=comisiones'));
+                flash('ok', '«' . $reg['nombre'] . '» ' . ($reg['id_vendedor'] ? 'guardado.'
+                      : 'dado de alta. Cobra por las escalas de cada tipo de asociado; si tiene un % distinto, cargá la excepción en «Excepciones de comisión».'));
+                redirigir('vendedores.php?edit=' . $id);
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
@@ -183,91 +190,12 @@ if (es_post()) {
         }
     }
 
-    if ($accion === 'reglas' && $actual) {
+    if (strncmp($accion, 'escala_', 7) === 0 && $actual) {
         $solapa = 'comisiones';
-        $ids = post_lista('id_regla');
-        $prod = post_lista('id_producto');
-        $tm = post_lista('telemarketing');
-        $pdesde = post_lista('plazo_desde');
-        $phasta = post_lista('plazo_hasta');
-        $pct = post_lista('porcentaje');
-        $base = post_lista('base_calculo');
-        $prio = post_lista('prioridad');
-        $vdesde = post_lista('vigencia_desde');
-        $vhasta = post_lista('vigencia_hasta');
-        $act = array_map('strval', array_keys((array) ($_POST['activo_regla'] ?? [])));
-        $productos = array_column(q('SELECT id_producto, codigo FROM productos'), 'codigo', 'id_producto');
-
-        $filas = [];
-        foreach ($pct as $k => $p) {
-            $rid = (int) ($ids[$k] ?? 0);
-            if ($rid === 0 && $p === '') {
-                continue;                                // renglón nuevo vacío
-            }
-            $f = ['id_regla' => $rid, 'id_producto' => (int) ($prod[$k] ?? 0) ?: null,
-                  'telemarketing' => ($tm[$k] ?? '') === '' ? null : (int) $tm[$k],
-                  'plazo_desde' => $pdesde[$k] ?? '1', 'plazo_hasta' => $phasta[$k] ?? '999',
-                  'porcentaje' => $p, 'base_calculo' => $base[$k] ?? 'CAPITAL', 'prioridad' => $prio[$k] ?? '20',
-                  'vigencia_desde' => $vdesde[$k] ?? '', 'vigencia_hasta' => $vhasta[$k] ?? '',
-                  'activo' => $rid === 0 || in_array((string) $k, $act, true) ? 1 : 0];
-            $r = 'Renglón ' . ($k + 1) . ': ';
-            $n = leer_num($f['porcentaje']);
-            if ($n === null || $n < 0 || $n > 100) {
-                $errores[] = $r . 'el % de comisión va de 0 a 100.';
-            }
-            $f['pct_num'] = $n;
-            if ($f['id_producto'] && !isset($productos[$f['id_producto']])) {
-                $errores[] = $r . 'el producto no existe.';
-            }
-            if (!ctype_digit($f['plazo_desde'] ?: '1') || !ctype_digit($f['plazo_hasta'] ?: '999') || (int) ($f['plazo_desde'] ?: 1) > (int) ($f['plazo_hasta'] ?: 999)) {
-                $errores[] = $r . 'el rango de cuotas no es válido.';
-            }
-            if (!isset(BASES[$f['base_calculo']])) {
-                $errores[] = $r . 'elegí la base.';
-            }
-            if (!preg_match('/^-?\d{1,4}$/', $f['prioridad'] ?: '0')) {
-                $errores[] = $r . 'la prioridad es un número.';
-            }
-            $f['vd'] = leer_fecha($f['vigencia_desde']);
-            $f['vh'] = $f['vigencia_hasta'] === '' ? null : leer_fecha($f['vigencia_hasta']);
-            if (!$f['vd']) {
-                $errores[] = $r . 'falta la fecha desde la que rige.';
-            }
-            if ($f['vigencia_hasta'] !== '' && (!$f['vh'] || ($f['vd'] && $f['vh'] < $f['vd']))) {
-                $errores[] = $r . 'la vigencia «hasta» no puede ser anterior a «desde».';
-            }
-            $filas[] = $f;
-        }
-        $reglasForm = $filas;
-
-        if (!$errores) {
-            $pdo = db();
-            try {
-                $pdo->beginTransaction();
-                foreach ($filas as $f) {
-                    $desc = mb_substr($actual['codigo'] . ' - ' . ($f['id_producto'] ? $productos[$f['id_producto']] : 'TODOS')
-                          . ' - TM ' . ($f['telemarketing'] === null ? 'CUALQUIERA' : ($f['telemarketing'] ? 'SI' : 'NO')), 0, 120);
-                    $v = [$desc, $f['id_producto'], $f['telemarketing'], (int) ($f['plazo_desde'] ?: 1), (int) ($f['plazo_hasta'] ?: 999),
-                          round($f['pct_num'] / 100, 6), $f['base_calculo'], (int) ($f['prioridad'] ?: 0), $f['vd'], $f['vh'], $f['activo']];
-                    if ($f['id_regla']) {
-                        q('UPDATE comision_reglas SET descripcion = ?, id_producto = ?, telemarketing = ?, plazo_desde = ?, plazo_hasta = ?,
-                                  porcentaje = ?, base_calculo = ?, prioridad = ?, vigencia_desde = ?, vigencia_hasta = ?, activo = ?
-                            WHERE id_regla = ? AND id_vendedor = ?', array_merge($v, [$f['id_regla'], $id]));
-                    } else {
-                        q('INSERT INTO comision_reglas (descripcion, id_producto, telemarketing, plazo_desde, plazo_hasta, porcentaje,
-                                                        base_calculo, prioridad, vigencia_desde, vigencia_hasta, activo, id_vendedor)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', array_merge($v, [$id]));
-                    }
-                }
-                $pdo->commit();
-                flash('ok', 'Reglas de comisión de «' . $actual['nombre'] . '» guardadas. Rigen para los préstamos que se liquiden de ahora en más.');
-                redirigir('vendedores.php?edit=' . $id . '&solapa=comisiones');
-            } catch (Throwable $e) {
-                if ($pdo->inTransaction()) {
-                    $pdo->rollBack();
-                }
-                $errores[] = mensaje_bd($e);
-            }
+        try {
+            $errores = escala_acciones($accion, null, $id, 'vendedores.php?edit=' . $id . '&solapa=comisiones', $escalaForm);
+        } catch (Throwable $e) {
+            $errores[] = mensaje_bd($e);
         }
     }
 }
@@ -286,26 +214,44 @@ if ($id && $reg === null) {
 } elseif ($reg === null && get_str('nuevo') !== '') {
     $reg = ['id_vendedor' => null, 'codigo' => '', 'nombre' => '', 'cuit' => '', 'tipo_vinculo' => 'COMISIONISTA',
             'id_zona' => null, 'zona_nueva' => '', 'id_supervisor' => null, 'id_usuario' => null,
-            'fecha_alta' => date('Y-m-d'), 'telefono' => '', 'activo' => 1];
+            'fecha_alta' => date('Y-m-d'), 'telefono' => '', 'cbu' => '', 'alias_cbu' => '', 'activo' => 1];
 }
 
 $zonas = array_column(q('SELECT id_zona, nombre FROM zonas WHERE activo = 1 ORDER BY nombre'), 'nombre', 'id_zona');
 $supervisores = array_column(q('SELECT id_vendedor, CONCAT(nombre, " (", codigo, ")") AS n FROM vendedores
                                  WHERE activo = 1 AND id_vendedor <> ? ORDER BY nombre', [(int) $id]), 'n', 'id_vendedor');
 $usuarios = array_column(q('SELECT id_usuario, CONCAT(nombre, " · ", email) AS n FROM usuarios WHERE activo = 1 ORDER BY nombre'), 'n', 'id_usuario');
-$productos = array_column(q('SELECT id_producto, CONCAT(codigo, " · ", nombre) AS n FROM productos ORDER BY codigo'), 'n', 'id_producto');
+$tiposAsoc = array_column(q('SELECT id_tipo_asociado, nombre FROM tipos_asociado WHERE activo = 1 ORDER BY nombre'), 'nombre', 'id_tipo_asociado');
 
 $reglas = [];
+$nActivas = 0;
+$cobra = [];          // lo que cobra hoy, por tipo de asociado
 if ($reg && $reg['id_vendedor']) {
-    $reglas = q('SELECT r.*, (SELECT COUNT(*) FROM comisiones_devengadas d WHERE d.id_regla = r.id_regla) AS usos
-                   FROM comision_reglas r WHERE r.id_vendedor = ?
-                  ORDER BY r.activo DESC, (r.id_producto IS NULL), r.id_producto, r.telemarketing, r.vigencia_desde', [(int) $reg['id_vendedor']]);
-    if ($reglasForm !== null) {
-        $usosR = array_column($reglas, 'usos', 'id_regla');
-        $reglas = array_map(function ($f) use ($usosR) {
-            return $f + ['usos' => $usosR[$f['id_regla']] ?? 0];
-        }, $reglasForm);
+    $vid = (int) $reg['id_vendedor'];
+    $todas = escalas_de(null, $vid);
+    $nActivas = count(array_filter($todas, function ($x) { return (int) $x['activo']; }));
+    $reglas = array_values(array_filter($todas, function ($x) use ($fExc) { return $fExc === 'todas' || (int) $x['activo'] === (int) $fExc; }));
+    // Un tipo dado de baja que figura en una excepción también se puede elegir.
+    foreach ($todas as $x) {
+        if ($x['id_tipo_asociado'] && !isset($tiposAsoc[$x['id_tipo_asociado']])) {
+            $tiposAsoc[$x['id_tipo_asociado']] = $x['tipo_nombre'] . ' (inactivo)';
+        }
     }
+    $cobra = q("SELECT t.id_tipo_asociado, t.nombre,
+                       g.n AS g_n, g.porcentaje AS g_pct, g.porcentaje_tm AS g_tm, g.md AS g_md, g.mh AS g_mh,
+                       x.n AS x_n, x.porcentaje AS x_pct, x.porcentaje_tm AS x_tm, x.md AS x_md, x.mh AS x_mh
+                  FROM tipos_asociado t
+                  LEFT JOIN (SELECT id_tipo_asociado, COUNT(*) AS n, MIN(porcentaje) AS porcentaje, MIN(porcentaje_tm) AS porcentaje_tm,
+                                    MIN(monto_desde) AS md, MAX(monto_hasta) AS mh
+                               FROM comision_reglas WHERE id_vendedor IS NULL AND activo = 1
+                                AND vigencia_desde <= CURDATE() AND (vigencia_hasta IS NULL OR vigencia_hasta >= CURDATE())
+                              GROUP BY id_tipo_asociado) g ON g.id_tipo_asociado = t.id_tipo_asociado
+                  LEFT JOIN (SELECT id_tipo_asociado, COUNT(*) AS n, MIN(porcentaje) AS porcentaje, MIN(porcentaje_tm) AS porcentaje_tm,
+                                    MIN(monto_desde) AS md, MAX(monto_hasta) AS mh
+                               FROM comision_reglas WHERE id_vendedor = ? AND activo = 1
+                                AND vigencia_desde <= CURDATE() AND (vigencia_hasta IS NULL OR vigencia_hasta >= CURDATE())
+                              GROUP BY id_tipo_asociado) x ON x.id_tipo_asociado = t.id_tipo_asociado
+                 WHERE t.activo = 1 ORDER BY t.nombre", [$vid]);
 }
 
 $fEstado = get_str('estado') === '' ? '1' : get_str('estado');
@@ -317,8 +263,11 @@ if ($fEstado === '1' || $fEstado === '0') {
     $par[] = (int) $fEstado;
 }
 if ($fQ !== '') {
-    $where[] = '(v.codigo LIKE ? OR v.nombre LIKE ? OR v.cuit LIKE ?)';
+    $where[] = '(v.codigo LIKE ? OR v.nombre LIKE ? OR v.cuit LIKE ?' . ($conBanco ? ' OR v.cbu = ? OR v.alias_cbu LIKE ?' : '') . ')';
     array_push($par, '%' . $fQ . '%', '%' . $fQ . '%', '%' . cuit_limpio($fQ) . '%');
+    if ($conBanco) {
+        array_push($par, cbu_limpio($fQ), '%' . $fQ . '%');
+    }
 }
 $lista = q('SELECT v.*, z.nombre AS zona, s.nombre AS supervisor, u.nombre AS usuario,
                    (SELECT COUNT(*) FROM clientes c WHERE c.id_vendedor = v.id_vendedor) AS clientes,
@@ -341,39 +290,8 @@ function accion_vendedor(int $id, string $accion, string $icono, string $titulo,
          . '<button class="btn-accion ' . h($clase) . '" title="' . h($titulo) . '" aria-label="' . h($titulo) . '">' . icono($icono) . '</button></form>';
 }
 
-/** Un renglón editable de regla de comisión. */
-function renglon_regla(array $r, int $k, array $productos): string
-{
-    $nueva = (int) ($r['id_regla'] ?? 0) === 0;
-    $pct = $r['pct_num'] ?? null;
-    $pctTxt = isset($r['porcentaje']) && !isset($r['pct_num']) && $r['porcentaje'] !== ''
-        ? num((float) $r['porcentaje'] * 100, 2) : ($pct !== null ? num($pct, 2) : ($r['porcentaje'] ?? ''));
-    if (isset($r['pct_num']) && $r['pct_num'] === null) {
-        $pctTxt = $r['porcentaje'];
-    }
-    $tm = $r['telemarketing'] ?? null;
-    $tmVal = $tm === null || $tm === '' ? '' : (string) (int) $tm;
-    $fd = $r['vd'] ?? ($r['vigencia_desde'] ?? '');
-    $fh = $r['vh'] ?? ($r['vigencia_hasta'] ?? '');
-    return '<tr' . (!$nueva && !(int) $r['activo'] ? ' class="fila-baja"' : '') . '>'
-        . '<td><input type="hidden" name="id_regla[]" value="' . (int) ($r['id_regla'] ?? 0) . '">'
-        . '<select name="id_producto[]" class="celda-input">' . opciones($productos, $r['id_producto'] ?? '', 'Todos los productos') . '</select></td>'
-        . '<td><select name="telemarketing[]" class="celda-input corto">' . opciones(TM, $tmVal) . '</select></td>'
-        . '<td><input name="plazo_desde[]" value="' . h((string) ($r['plazo_desde'] ?? '1')) . '" class="celda-input derecha" style="width:56px" inputmode="numeric">'
-        . ' a <input name="plazo_hasta[]" value="' . h((string) ($r['plazo_hasta'] ?? '999')) . '" class="celda-input derecha" style="width:56px" inputmode="numeric"></td>'
-        . '<td><input name="porcentaje[]" value="' . h((string) $pctTxt) . '" class="celda-input derecha" style="width:80px" inputmode="decimal" placeholder="%"></td>'
-        . '<td><select name="base_calculo[]" class="celda-input">' . opciones(BASES, $r['base_calculo'] ?? 'CAPITAL') . '</select></td>'
-        . '<td><input name="prioridad[]" value="' . h((string) ($r['prioridad'] ?? '20')) . '" class="celda-input derecha" style="width:60px" inputmode="numeric"></td>'
-        . '<td><input type="date" name="vigencia_desde[]" value="' . h((string) $fd) . '" class="celda-input"></td>'
-        . '<td><input type="date" name="vigencia_hasta[]" value="' . h((string) $fh) . '" class="celda-input"></td>'
-        . '<td class="td-center">' . ($nueva ? '<span class="td-muted">nueva</span>'
-              : '<input type="checkbox" name="activo_regla[' . $k . ']" value="1"' . ((int) $r['activo'] ? ' checked' : '') . '>') . '</td>'
-        . '<td class="td-right">' . ($nueva ? '' : ((int) ($r['usos'] ?? 0) ?: '<span class="td-muted">—</span>')) . '</td>'
-        . '</tr>';
-}
-
 layout_inicio('Vendedores');
-titulo('Vendedores', 'Quiénes venden, con qué vínculo y zona, y cuánto cobran de comisión por cada producto.',
+titulo('Vendedores', 'Quiénes venden, con qué vínculo y zona, y sus excepciones a las escalas de comisión.',
        $reg ? '' : boton('Nuevo vendedor', 'primary', 'vendedores.php?nuevo=1', 'agregar'));
 mensajes($errores);
 
@@ -384,7 +302,7 @@ if ($reg):
 <?php if (!$esNuevo): ?>
 <div class="abm-tabs">
   <a class="solapa <?= $solapa === 'datos' ? 'activa' : '' ?>" href="vendedores.php?edit=<?= (int) $r['id_vendedor'] ?>">Datos</a>
-  <a class="solapa <?= $solapa === 'comisiones' ? 'activa' : '' ?>" href="vendedores.php?edit=<?= (int) $r['id_vendedor'] ?>&amp;solapa=comisiones">Reglas de comisión <span class="conteo"><?= count(array_filter($reglas, function ($x) { return (int) ($x['id_regla'] ?? 0) > 0; })) ?></span></a>
+  <a class="solapa <?= $solapa === 'comisiones' ? 'activa' : '' ?>" href="vendedores.php?edit=<?= (int) $r['id_vendedor'] ?>&amp;solapa=comisiones">Excepciones de comisión <span class="conteo"><?= $nActivas ?></span></a>
 </div>
 <?php endif; ?>
 
@@ -428,64 +346,111 @@ if ($reg):
           <?php if (!$esNuevo && !(int) $r['activo'] && !empty($r['fecha_baja'])): ?><small class="campo-ayuda">De baja desde el <?= fecha($r['fecha_baja']) ?>.</small><?php endif; ?></div>
       </div>
     </div>
+    <?php if ($conBanco): ?>
+    <div class="bloque">
+      <div class="bloque-titulo">Datos bancarios</div>
+      <div class="campos">
+        <?= campos_datos_bancarios($r['cbu'] ?? '', $r['alias_cbu'] ?? '', 'para pagarle las comisiones') ?>
+      </div>
+    </div>
+    <?php endif; ?>
     <div class="form-acciones"><?= boton($esNuevo ? 'Dar de alta' : 'Guardar', 'primary', null, 'guardar', true) ?></div>
   </div>
 </form>
 <?php else: ?>
-<form method="post" action="vendedores.php?edit=<?= (int) $r['id_vendedor'] ?>&amp;solapa=comisiones">
-  <?= csrf_campo() ?>
-  <input type="hidden" name="accion" value="reglas">
-  <input type="hidden" name="id" value="<?= (int) $r['id_vendedor'] ?>">
-  <div class="card">
-    <?= card_head('Reglas de comisión de ' . $r['nombre'], count($reglas) . (count($reglas) === 1 ? ' regla' : ' reglas'), boton('Volver', 'secondary', 'vendedores.php', 'volver', false, true)) ?>
-    <div class="bloque">
-      <p class="nota-arbol">Al liquidar un préstamo se usa la regla activa y vigente que coincida con el producto, el telemarketing, las cuotas y el monto; si hay varias, la de mayor prioridad. El % queda guardado en el préstamo: cambiar una regla no modifica lo ya liquidado. Para un aumento conviene cerrar la regla (vigencia hasta) y cargar otra desde la fecha nueva. Una regla sin producto vale para todos.</p>
-    </div>
-    <div class="data-table-wrap">
-      <table class="data-table tabla-edicion" data-sin-orden>
-        <thead><tr><th data-no-sort>Producto</th><th data-no-sort>Telemarketing</th><th data-no-sort>Cuotas</th><th class="th-right" data-no-sort>% comisión</th>
-          <th data-no-sort>Base</th><th class="th-right" data-no-sort>Prioridad</th><th data-no-sort>Rige desde</th><th data-no-sort>Hasta</th>
-          <th class="th-center" data-no-sort>Activa</th><th class="th-right" data-no-sort>Préstamos</th></tr></thead>
-        <tbody>
-          <?php foreach ($reglas as $k => $x): ?><?= renglon_regla($x, $k, $productos) ?><?php endforeach; ?>
-          <?= renglon_regla(['id_regla' => 0, 'vigencia_desde' => date('Y-m-d'), 'prioridad' => 20, 'activo' => 1], count($reglas), $productos) ?>
-        </tbody>
-      </table>
-    </div>
-    <div class="form-acciones"><?= boton('Guardar reglas', 'primary', null, 'guardar', true) ?></div>
+<?php
+    $baseExc = 'vendedores.php?edit=' . (int) $r['id_vendedor'] . '&solapa=comisiones';
+    $editar = get_str('escala');
+    if ($escalaForm !== null || $editar !== '') {
+        $fila = $editar !== '' && $editar !== 'nueva'
+            ? q1('SELECT * FROM comision_reglas WHERE id_regla = ? AND id_vendedor = ?', [(int) $editar, (int) $r['id_vendedor']]) : null;
+        $vals = $escalaForm ?? escala_valores($fila, (int) get_str('tipo') ?: null);
+        echo escala_form($vals, $baseExc . ($editar !== '' ? '&escala=' . rawurlencode($editar) : ''), $baseExc, $tiposAsoc,
+                         (int) $vals['id_regla'] ? 'Editar la excepción' : 'Nueva excepción de comisión');
+    }
+?>
+<div class="card">
+  <?= card_head('Excepciones de comisión de ' . $r['nombre'], 'cuando cobra distinto que la escala del tipo de asociado',
+                boton('Nueva excepción', 'primary', $baseExc . '&escala=nueva', 'agregar', false, true)) ?>
+  <div class="bloque">
+    <p class="nota-arbol">La comisión sale de la escala de cada tipo de asociado (<?= puede('tipos_asociado.php') ? '<a href="tipos_asociado.php">Tipos de asociado y tasas</a>' : 'Tipos de asociado y tasas' ?>), la misma para todos los vendedores. Acá se cargan solo los casos en que este vendedor cobra distinto: si una excepción activa y vigente cubre el tipo y el monto del préstamo, se usa la suya; si no, la general. Con telemarketing se usa el % de telemarketing (vacío: el mismo). El % queda guardado en el préstamo: cambiar una excepción no modifica lo ya liquidado.</p>
   </div>
-</form>
+  <?= escalas_grilla($reglas, $baseExc . ($fExc !== '1' ? '&exc=' . $fExc : ''), true, 'excepción|excepciones',
+                     $fExc === '1' ? 'Cobra todo por las escalas generales. Si cobra distinto en algún tipo, cargá la excepción con «Nueva excepción».' : 'Ninguna excepción con ese estado.',
+                     filtro_select('exc', 'Estado', ['1' => 'Activas', '0' => 'De baja', 'todas' => 'Todas'], $fExc, '', $fExc !== '1'), $fExc !== '1') ?>
+</div>
+
+<div class="card">
+  <?= card_head('Lo que cobra hoy', 'por tipo de asociado: la escala general y la suya') ?>
+  <?= barra_local('vendedores.php?edit=' . (int) $r['id_vendedor'] . '&solapa=comisiones', 'Tipo de asociado…') ?>
+  <div class="data-table-wrap">
+    <table class="data-table" data-local data-paginada data-unidad="tipo|tipos">
+      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Tipo de asociado</th><th class="th-right">Escala general</th><th class="th-right">Este vendedor</th></tr></thead>
+      <tbody>
+      <?php foreach ($cobra as $c):
+          // Una sola escala: su % y, si no cubre todos los montos, el tramo.
+          $txt = function ($n, $p, $tm, $md, $mh) {
+              if (!$n) {
+                  return null;
+              }
+              if ((int) $n > 1) {
+                  return [num($n) . ' escalas por monto', ''];
+              }
+              $tramo = escala_tramo_txt($md, $mh);
+              return [escala_pct_campo($p) . ' % · TM ' . escala_pct_campo($tm ?? $p) . ' %', $tramo === 'Cualquier monto' ? '' : $tramo];
+          };
+          $gen = $txt($c['g_n'], $c['g_pct'], $c['g_tm'], $c['g_md'], $c['g_mh']);
+          $exc = $txt($c['x_n'], $c['x_pct'], $c['x_tm'], $c['x_md'], $c['x_mh']); ?>
+        <tr>
+          <td><div class="acciones"><?= puede('tipos_asociado.php') ? btn_accion('ver', 'tipos_asociado.php?id=' . (int) $c['id_tipo_asociado'] . '&solapa=escalas', 'Escalas del tipo de asociado') : '' ?>
+            <?= btn_accion('agregar', 'vendedores.php?edit=' . (int) $r['id_vendedor'] . '&solapa=comisiones&escala=nueva&tipo=' . (int) $c['id_tipo_asociado'], 'Nueva excepción en este tipo') ?></div></td>
+          <td class="td-fuerte"><?= h($c['nombre']) ?></td>
+          <td class="td-right"><?= $gen !== null ? h($gen[0]) . ($gen[1] !== '' ? '<span class="segunda-linea">' . h($gen[1]) . '</span>' : '') : estado('Sin escala', 'warn') ?></td>
+          <td class="td-right"><?= $exc !== null ? '<strong>' . h($exc[0]) . '</strong><span class="segunda-linea">excepción' . ($exc[1] !== '' ? ' · ' . h(mb_strtolower($exc[1])) . '; el resto, la general' : '') . '</span>'
+                                                 : '<span class="td-muted">la general</span>' ?></td>
+        </tr>
+      <?php endforeach; ?>
+      <?php if (!$cobra): ?><tr><td colspan="4" class="no-data">No hay tipos de asociado activos.</td></tr><?php endif; ?>
+      </tbody>
+    </table>
+  </div>
+  <?= paginacion_local() ?>
+</div>
 <?php endif; ?>
 <?php endif; ?>
 
 <div class="card">
-  <?= card_head('Vendedores', num(count($lista)) . ' en la lista') ?>
+  <?= card_head('Vendedores') ?>
   <form method="get" action="vendedores.php" class="filter-bar">
-    <input type="search" name="q" value="<?= h($fQ) ?>" class="filter-input" placeholder="Código, nombre o CUIT…">
-    <select name="estado" class="filtro" onchange="this.form.submit()">
-      <?= opciones(['1' => 'Activos', '0' => 'Dados de baja', 'todos' => 'Todos'], $fEstado) ?>
-    </select>
-    <?= boton('Filtrar', 'secondary', null, 'filtro', true, true) ?>
+    <label class="filtro-campo filtro-buscar"><span class="filtro-lbl">Buscar</span>
+      <input type="search" name="q" value="<?= h($fQ) ?>" class="filter-input <?= $fQ !== '' ? 'activo' : '' ?>" placeholder="Código, nombre, CUIT, CBU o alias…"></label>
+    <label class="filtro-campo"><span class="filtro-lbl">Estado</span>
+      <select name="estado" class="filtro <?= $fEstado !== '1' ? 'activo' : '' ?>" onchange="this.form.submit()">
+        <?= opciones(['1' => 'Activos', '0' => 'Dados de baja', 'todos' => 'Todos'], $fEstado) ?>
+      </select></label>
+    <?= filtro_botones('vendedores.php', $fQ !== '' || $fEstado !== '1') ?>
+    <?= filtro_fin_local(null) ?>
   </form>
   <div class="data-table-wrap">
-    <table class="data-table">
+    <table class="data-table" data-local data-paginada data-unidad="vendedor|vendedores">
       <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Código</th><th>Nombre</th><th>CUIT</th><th>Celular</th><th>Vínculo</th><th>Zona</th>
-        <th>Supervisor</th><th>Usuario</th><th class="th-right">Clientes</th><th class="th-right">Préstamos vigentes</th><th class="th-right">Reglas vigentes</th><th>Estado</th></tr></thead>
+        <th>Supervisor</th><th>Usuario</th><th class="th-right">Clientes</th><th class="th-right">Préstamos vigentes</th><th class="th-right">Excepciones</th><th>Estado</th></tr></thead>
       <tbody>
       <?php foreach ($lista as $v): $vid = (int) $v['id_vendedor']; ?>
         <tr class="<?= (int) $v['activo'] ? '' : 'fila-baja' ?>">
           <td><div class="acciones">
             <?= btn_accion('editar', 'vendedores.php?edit=' . $vid, 'Editar') ?>
-            <?= btn_accion('ver', 'vendedores.php?edit=' . $vid . '&solapa=comisiones', 'Reglas de comisión') ?>
+            <?= btn_accion('ver', 'vendedores.php?edit=' . $vid . '&solapa=comisiones', 'Excepciones de comisión') ?>
             <?= (int) $v['activo']
                   ? accion_vendedor($vid, 'baja', 'cerrar', 'Dar de baja', '«' . $v['nombre'] . '» deja de ofrecerse al cargar clientes y préstamos. Lo que tiene sigue a su nombre.', 'borrar')
                   : accion_vendedor($vid, 'reactivar', 'ok', 'Reactivar') ?>
             <?= !(int) $v['clientes'] && !(int) $v['prestamos'] && !usos_vendedor($vid)
-                  ? accion_vendedor($vid, 'borrar', 'borrar', 'Eliminar', 'Se elimina «' . $v['nombre'] . '» con sus reglas de comisión. No tiene clientes, préstamos ni comisiones.', 'borrar') : '' ?>
+                  ? accion_vendedor($vid, 'borrar', 'borrar', 'Eliminar', 'Se elimina «' . $v['nombre'] . '» con sus excepciones de comisión. No tiene clientes, préstamos ni comisiones.', 'borrar') : '' ?>
           </div></td>
           <td class="td-mono td-fuerte"><?= h($v['codigo']) ?></td>
           <td><?= h($v['nombre']) ?></td>
-          <td class="td-mono"><?= $v['cuit'] ? h(cuit_fmt($v['cuit'])) : '<span class="td-muted">—</span>' ?></td>
+          <td class="td-mono"><?= $v['cuit'] ? h(cuit_fmt($v['cuit'])) : '<span class="td-muted">—</span>' ?>
+            <?php if (!empty($v['alias_cbu']) || !empty($v['cbu'])): ?><span class="segunda-linea"><?= !empty($v['alias_cbu']) ? 'alias ' . h($v['alias_cbu']) : 'CBU ' . h(cbu_fmt($v['cbu'])) ?></span><?php endif; ?></td>
           <td><?= tel_enlace($v['telefono'] ?? null, (string) $v['nombre']) ?: '<span class="td-muted">—</span>' ?></td>
           <td><?= h(VINCULOS[$v['tipo_vinculo']] ?? $v['tipo_vinculo']) ?></td>
           <td><?= h((string) $v['zona']) ?: '<span class="td-muted">—</span>' ?></td>
@@ -493,7 +458,7 @@ if ($reg):
           <td><?= h((string) $v['usuario']) ?: '<span class="td-muted">—</span>' ?></td>
           <td class="td-right"><?= num($v['clientes']) ?></td>
           <td class="td-right"><?= num($v['prestamos']) ?></td>
-          <td class="td-right"><?= (int) $v['reglas'] ? num($v['reglas']) : estado('sin reglas', 'warn') ?></td>
+          <td class="td-right"><?= (int) $v['reglas'] ? num($v['reglas']) : '<span class="td-muted">—</span>' ?></td>
           <td><?= (int) $v['activo'] ? estado('Activo', 'ok') : estado('Baja', 'neutro') ?></td>
         </tr>
       <?php endforeach; ?>
@@ -501,6 +466,7 @@ if ($reg):
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 <?php
 layout_fin();

@@ -173,7 +173,6 @@ a:hover { text-decoration: underline; }
   .menu-fondo { display: block; position: fixed; inset: 60px 0 0 0; z-index: 94; background: rgba(15,30,55,.45); }
   .menu-fondo[hidden] { display: none; }
   body.menu-abierto { overflow: hidden; }
-  body.menu-abierto #btn-ayuda { display: none; }
   /* Opciones más altas: fáciles de tocar con el dedo */
   .sidebar-nav > li > a { padding-top: 12px; padding-bottom: 12px; }
   .sidebar-nav > li > ul > li > a { padding-top: 10px; padding-bottom: 10px; }
@@ -239,6 +238,12 @@ a:hover { text-decoration: underline; }
 }
 .btn:hover { text-decoration: none; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
 .btn:focus-visible { outline: none; box-shadow: var(--foco); }
+/* Un envío por vez (app.js): el formulario mandado espera la respuesta */
+form.enviando, form.enviando .btn { cursor: progress; }
+.btn.enviando { opacity: .75; }
+.btn.enviando::after { content: ''; width: 12px; height: 12px; flex: none; border: 2px solid currentColor; border-right-color: transparent;
+                       border-radius: 50%; animation: btn-girar .7s linear infinite; }
+@keyframes btn-girar { to { transform: rotate(360deg); } }
 .btn svg { flex-shrink: 0; }
 .btn-primary   { background: var(--blue); color: #fff; }
 .btn-primary:hover { background: var(--blue-hover); color: #fff; }
@@ -277,6 +282,11 @@ a:hover { text-decoration: underline; }
 .btn-accion.pdf      { --c: var(--pdf);   --c-borde: #fca5a5; }
 .btn-accion.planilla { --c: var(--excel); --c-borde: #86efac; }
 .btn-accion.descargar { --c: var(--navy); --c-borde: var(--info-borde); }
+/* Desplegar el detalle de un renglón (las cuotas de un préstamo en Cobros en efectivo) */
+.btn-accion.detalle  { --c: var(--navy); --c-borde: var(--info-borde); }
+.btn-accion.detalle svg { transition: transform .15s; }
+.btn-accion.detalle.abierto { background: var(--c); color: #fff; }
+.btn-accion.detalle.abierto svg { transform: rotate(180deg); }
 .acciones { display: flex; gap: 4px; align-items: center; }
 .data-table .col-acciones { width: 1%; }
 
@@ -298,13 +308,26 @@ a:hover { text-decoration: underline; }
 .kpi-lbl { font-size: .72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
 .kpi-val { font-size: 1.4rem; font-weight: 700; color: var(--navy); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .kpi-val.monto { font-size: 1.05rem; }
+.kpi-sub { font-size: .74rem; color: var(--text-muted); margin-top: 2px; }
+.kpi-val.importe-ok { color: var(--ok-texto); }
+.kpi-val.importe-danger { color: var(--danger-texto); }
 
 /* ── 8. Barra de filtros ───────────────────────────────────────────────── */
 .filter-bar {
   display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap;
   padding: 12px 18px; background: var(--surface-2);
 }
+/* La barra va en la misma tarjeta que su grilla (la estructura de gestion_adm:
+   .card > .filter-bar + .data-table-wrap + .pagination-bar). */
 .card > .filter-bar { border-bottom: 0; }
+.card > .filter-bar:not(:last-child) { border-bottom: 1px solid var(--border); }
+/* El grupo de la derecha: contador, «Exportar a Excel» y filas por página.
+   Si la barra no entra en una línea, baja entero y alineado a la derecha. */
+.filter-bar-fin { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.filter-bar .page-size-select { height: 32px; }
+.filter-bar input.filtro[type=date] { min-width: 142px; cursor: text; }
+.filter-bar input.filtro[type=month] { min-width: 150px; cursor: text; }
+.btn-quitar-filtro:disabled { opacity: .5; cursor: default; }
 .filtro-campo { display: inline-flex; flex-direction: column; gap: 4px; }
 .filtro-lbl {
   font-size: .68rem; font-weight: 700; color: var(--text-muted);
@@ -332,6 +355,19 @@ a:hover { text-decoration: underline; }
 
 /* ── 9. Grillas ────────────────────────────────────────────────────────── */
 .data-table-wrap { overflow-x: auto; }
+/* Segunda barra horizontal, arriba de la grilla (la pone tabla.js cuando no
+   entra a lo ancho). Las dos con el mismo aspecto, más visibles que la del sistema. */
+.scroll-arriba { overflow-x: auto; overflow-y: hidden; background: var(--surface-2); }
+.scroll-arriba > div { height: 1px; }
+.scroll-arriba::-webkit-scrollbar, .data-table-wrap::-webkit-scrollbar { height: 10px; }
+.scroll-arriba::-webkit-scrollbar-track, .data-table-wrap::-webkit-scrollbar-track { background: var(--surface-2); }
+.scroll-arriba::-webkit-scrollbar-thumb, .data-table-wrap::-webkit-scrollbar-thumb {
+  background: #b9c6da; border-radius: 6px; border: 2px solid var(--surface-2);
+}
+.scroll-arriba::-webkit-scrollbar-thumb:hover, .data-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+@supports (-moz-appearance: none) {
+  .scroll-arriba, .data-table-wrap { scrollbar-color: #b9c6da var(--surface-2); }
+}
 .data-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .data-table thead th {
   background: var(--navy); color: #fff; text-align: left; white-space: nowrap;
@@ -342,7 +378,13 @@ a:hover { text-decoration: underline; }
 .data-table thead th[data-no-sort] { cursor: default; }
 .data-table thead th[data-no-sort]:hover { background: var(--navy); }
 .data-table thead th:not([data-no-sort])::after { content: "⇅"; margin-left: 5px; font-size: .85em; opacity: .4; }
+.data-table[data-sin-orden] thead th { cursor: default; }
 .data-table[data-sin-orden] thead th::after { content: none; }
+/* Una tabla anidada en un renglón (.sub-tabla) no se ordena: sin ⇅ */
+.data-table .sub-tabla thead th::after { content: none; }
+.data-table .sub-tabla thead th { cursor: default; }
+.data-table .sub-tabla thead th:hover { background: var(--surface-2); }
+.data-table[data-sin-orden] thead th:hover { background: var(--navy); }
 .data-table thead th.sort-asc::after  { content: "▲"; font-size: .7em; opacity: .95; }
 .data-table thead th.sort-desc::after { content: "▼"; font-size: .7em; opacity: .95; }
 .data-table tbody tr { transition: background .1s; }
@@ -366,6 +408,7 @@ a:hover { text-decoration: underline; }
 .data-table.compacta { width: auto; min-width: 560px; }
 .data-table.compacta thead th { background: #eef3fb; color: var(--navy); }
 .data-table.compacta thead th:not([data-no-sort]):hover { background: #e1eaf7; }
+.data-table.compacta[data-sin-orden] thead th:hover, .data-table.compacta thead th[data-no-sort]:hover { background: #eef3fb; }
 .data-table.compacta tbody td, .data-table.compacta tfoot td { padding: 6px 16px; }
 
 /* ── 10. Paginación ────────────────────────────────────────────────────── */
@@ -506,6 +549,10 @@ a.solapa.activa .conteo { background: var(--blue); color: #fff; }
 
 /* ── 15. Varios ────────────────────────────────────────────────────────── */
 .columnas-2-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+/* Con una grilla, los bloques van uno debajo del otro: la grilla usa todo el
+   ancho de la pantalla (las pantallas con grillas ya no se arman en columnas;
+   esto es el respaldo). */
+.columnas-2-1:has(.data-table), .grilla-2:has(.data-table), .panel-grilla:has(.data-table) { grid-template-columns: minmax(0, 1fr); }
 .columnas-2-1 > .card { min-width: 0; }
 @media (max-width: 1100px) { .columnas-2-1 { grid-template-columns: 1fr; } }
 .datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px 20px; padding: 16px 20px; }
@@ -686,15 +733,8 @@ a.page-btn:hover { text-decoration: none; border-color: var(--blue); color: var(
 .arbol-nodo svg, .arbol-celda svg { flex-shrink: 0; }
 
 /* ── Ayuda (manuales de uso, como la 18c de gestion_sindicato) ─────────── */
-#btn-ayuda {
-  position: fixed; right: 22px; bottom: 22px; z-index: 900;
-  display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px 9px 12px;
-  background: var(--navy); color: #fff; border-radius: 999px; box-shadow: var(--shadow-lg);
-  font-size: .85rem; font-weight: 600; text-decoration: none;
-}
-#btn-ayuda:hover { background: var(--navy-mid); text-decoration: none; }
-#btn-ayuda:focus-visible { outline: 3px solid var(--blue-light); outline-offset: 2px; }
-#btn-ayuda svg { width: 17px; height: 17px; }
+/* El botón Ayuda va en la barra de arriba (layout.php), como un .header-boton */
+.header-boton:focus-visible { outline: 3px solid var(--blue-light); outline-offset: 2px; }
 
 .ayuda-indice { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; align-items: start; }
 .ayuda-indice .card { margin-bottom: 0; }
@@ -755,7 +795,7 @@ a.page-btn:hover { text-decoration: none; border-color: var(--blue); color: var(
   .manual { grid-template-columns: 1fr; }
   .manual-indice { position: static; max-height: none; }
 }
-@media print { #btn-ayuda, .manual-indice { display: none !important; } .manual { display: block; } }
+@media print { .manual-indice { display: none !important; } .manual { display: block; } }
 
 /* ---- PWA: botón "Instalar app" y aviso para iPhone (assets/pwa.js) ---- */
 button.header-boton { border: 0; font-family: inherit; cursor: pointer; }
@@ -839,21 +879,17 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
 .icono-app-rango span { width: 40px; flex: none; }
 
 /* ── 16. Mensajes (chat.php, hilo de la solicitud, encabezado) ─────────── */
-/* Globito flotante, arriba del de Ayuda y con el mismo estilo */
-#btn-mensajes {
-  position: fixed; right: 22px; bottom: 74px; z-index: 900;
-  display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px 9px 12px;
-  background: var(--blue); color: #fff; border-radius: 999px; box-shadow: var(--shadow-lg);
-  font-size: .85rem; font-weight: 600; text-decoration: none;
+/* El botón Mensajes de la barra de arriba (al lado de Ayuda), con el número
+   de conversaciones sin leer en un círculo rojo sobre la esquina. */
+#btn-mensajes { position: relative; }
+/* En pantallas angostas, Mensajes y Ayuda quedan con el ícono solo (el nombre sigue en el title) */
+@media (max-width: 1000px) {
+  #btn-mensajes .hb-texto, #btn-ayuda .hb-texto { display: none; }
+  #btn-mensajes, #btn-ayuda { padding: 7px 9px; }
 }
-#btn-mensajes:hover { background: var(--blue-hover); text-decoration: none; }
-#btn-mensajes:focus-visible { outline: 3px solid var(--blue-light); outline-offset: 2px; }
-#btn-mensajes svg { width: 17px; height: 17px; }
-#btn-mensajes .chat-badge { position: absolute; top: -6px; right: -6px; box-shadow: 0 0 0 2px #fff; }
+#btn-mensajes .chat-badge { position: absolute; top: -7px; right: -7px; box-shadow: 0 0 0 2px var(--navy); }
 #btn-mensajes.con-nuevos { animation: chat-latido 1.2s ease-out 2; }
 @keyframes chat-latido { 0% { transform: scale(1); } 30% { transform: scale(1.12); } 60% { transform: scale(.97); } 100% { transform: scale(1); } }
-@media (max-width: 900px) { body.menu-abierto #btn-mensajes { display: none; } }
-@media print { #btn-mensajes { display: none !important; } }
 .chat-badge {
   display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px;
   border-radius: 9px; background: var(--danger); color: #fff; font-size: .68rem; font-weight: 700; line-height: 1;
@@ -1074,11 +1110,10 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
   .chat-cab-acc .btn { padding: 4px 8px; }
 }
 .chat-mas[hidden] { display: none; }
-/* El botón Ayuda (fijo abajo a la derecha) no tiene que tapar Enviar */
-.chat { height: calc(100vh - 60px - 104px); }
+/* La pantalla Mensajes ocupa el alto que queda debajo de la barra */
+.chat { height: calc(100vh - 60px - 76px); }
 @media (max-width: 900px) {
   .chat { height: calc(100vh - 60px - 32px); height: calc(100dvh - 60px - 32px); }
-  body:has([data-chat-app]) #btn-ayuda { display: none; }
 }
 .chat-dialogo { margin: auto; max-height: calc(100vh - 32px); overflow: auto; }
 
@@ -1125,3 +1160,49 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
 .panel-tip b { margin-left: auto; font-variant-numeric: tabular-nums; }
 .panel-tip .pg-liq { background: #1a7ac2; }
 .panel-tip .pg-cob { background: #eb6834; }
+
+/* ── Tesorería (cuentas de fondos, libro y débitos / créditos bancarios) ── */
+.importe-neg { color: var(--danger-texto); }
+/* Debe en verde y haber en rojo, como el subdiario de gestion_adm */
+.data-table td.importe-ok { color: var(--ok-texto); }
+.data-table td.importe-danger { color: var(--danger-texto); }
+.data-table tr.fila-baja td.importe-ok, .data-table tr.fila-baja td.importe-danger { color: inherit; }
+span.importe-ok { color: var(--ok-texto); }
+.data-table tr.fila-saldo td { background: var(--surface-2); font-weight: 600; color: var(--navy); }
+.data-table tr.fila-elegida td { background: var(--blue-light); }
+.barra-seleccion {
+  display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;
+  padding: 10px 14px; border-top: 1px solid var(--border); background: var(--surface-2);
+}
+.barra-seleccion-txt { font-size: .82rem; color: var(--text-muted); margin-right: auto; align-self: center; }
+/* Extractos bancarios: el nombre del archivo como lo baja el banco (largo y sin espacios) parte donde haga falta. */
+.data-table .archivo-nombre { font-family: var(--mono); font-size: .78rem; overflow-wrap: anywhere; word-break: break-all; }
+.data-table td.col-archivo, .data-table td.col-motivo { white-space: normal; min-width: 200px; max-width: 340px; }
+/* Órdenes de pago y transferencias masivas */
+.btn-accion.bloqueado { opacity: .35; cursor: not-allowed; }
+.filter-bar .filtro-info { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; align-self: flex-end; padding-bottom: 4px; }
+a.chip { text-decoration: none; }
+a.chip.activo { background: var(--blue); color: #fff; border-color: var(--blue); }
+details.plegable > summary { cursor: pointer; list-style: none; }
+details.plegable > summary::-webkit-details-marker { display: none; }
+details.plegable > summary .card-head-titulo::before { content: '▸ '; }
+details.plegable[open] > summary .card-head-titulo::before { content: '▾ '; }
+.archivo-texto { margin: 0; padding: 14px 20px; overflow-x: auto; font-family: var(--mono); font-size: .72rem; line-height: 1.5; white-space: pre; background: var(--surface-2); }
+
+/* Uso de un talonario: cuánto del rango ya se emitió (talonarios.php) */
+.uso-barra { display: block; height: 6px; min-width: 110px; margin: 3px 0 2px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.uso-barra > span { display: block; height: 100%; background: var(--blue); }
+.uso-barra.alerta > span { background: var(--warn); }
+.uso-barra.agotado > span { background: var(--danger); }
+
+/* Emisión de recibos: el detalle de cada crédito (cuotas y aplicación) y la reasignación, en un renglón debajo */
+.data-table tr.fila-detalle > td { background: var(--surface-2); padding-top: 4px; padding-bottom: 12px; white-space: normal; }
+.data-table .sub-tabla { width: 100%; border-collapse: collapse; font-size: .8rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.data-table .sub-tabla th { padding: 6px 10px; background: var(--surface-2); color: var(--text-muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; text-align: left; }
+.data-table .sub-tabla th.th-right, .data-table .sub-tabla td.td-right { text-align: right; }
+.data-table .sub-tabla td { padding: 5px 10px; border-top: 1px solid var(--border); background: transparent; }
+.data-table .sub-tabla tfoot td { font-weight: 600; color: var(--navy); }
+.asignar-linea { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.asignar-linea label { display: inline-flex; gap: 8px; align-items: center; font-size: .82rem; }
+.asignar-linea .filter-input { min-width: 190px; }
+.asignar-linea .campo-ayuda { flex-basis: 100%; margin: 0; }

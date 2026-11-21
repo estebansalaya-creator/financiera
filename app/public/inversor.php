@@ -20,7 +20,7 @@ if (es_post()) {
     csrf_exigir();
     $f = ['tipo' => post_str('tipo'), 'cuit' => cuit_limpio(post_str('cuit')), 'denominacion' => post_str('denominacion'),
           'email' => post_str('email'), 'telefono' => post_str('telefono'), 'domicilio' => post_str('domicilio'),
-          'cbu' => preg_replace('/\D/', '', post_str('cbu')), 'alias_cbu' => post_str('alias_cbu'),
+          'cbu' => cbu_limpio(post_str('cbu')), 'alias_cbu' => alias_cbu_limpio(post_str('alias_cbu')),
           'estado' => post_str('estado') === 'INACTIVO' ? 'INACTIVO' : 'ACTIVO', 'observaciones' => post_str('observaciones')];
     $form = $f;
     if (!in_array($f['tipo'], ['F', 'J'], true)) {
@@ -35,9 +35,7 @@ if (es_post()) {
     if ($f['email'] !== '' && !filter_var($f['email'], FILTER_VALIDATE_EMAIL)) {
         $errores[] = 'El email no es válido.';
     }
-    if ($f['cbu'] !== '' && strlen($f['cbu']) !== 22) {
-        $errores[] = 'El CBU/CVU tiene 22 dígitos.';
-    }
+    $errores = array_merge($errores, datos_bancarios_errores($f['cbu'], $f['alias_cbu']));
     $tel = null;
     if ($f['telefono'] !== '') {
         $tel = tel_normalizar($f['telefono']);            // celular si se escribe con 15 o con +54 9
@@ -140,11 +138,8 @@ mensajes($errores);
           <small class="campo-ayuda">Con la característica. Un celular, con el 15.</small></div>
         <div class="campo" style="--span:5"><label for="domicilio">Domicilio</label>
           <input id="domicilio" name="domicilio" value="<?= h($v['domicilio'] ?? '') ?>" maxlength="200"></div>
-        <div class="campo" style="--span:5"><label for="cbu">CBU / CVU (para pagarle)</label>
-          <input id="cbu" name="cbu" value="<?= h($v['cbu'] ?? '') ?>" class="mono" maxlength="26" inputmode="numeric"></div>
-        <div class="campo" style="--span:3"><label for="alias_cbu">Alias</label>
-          <input id="alias_cbu" name="alias_cbu" value="<?= h($v['alias_cbu'] ?? '') ?>" maxlength="40"></div>
-        <div class="campo" style="--span:12"><label for="observaciones">Observaciones</label>
+        <?= campos_datos_bancarios($v['cbu'] ?? '', $v['alias_cbu'] ?? '', 'para pagarle los intereses y el capital', 5, 3) ?>
+        <div class="campo" style="--span:4"><label for="observaciones">Observaciones</label>
           <input id="observaciones" name="observaciones" value="<?= h($v['observaciones'] ?? '') ?>" maxlength="255"></div>
       </div>
     </div>
@@ -157,12 +152,13 @@ mensajes($errores);
 
 <?php if ($inv): ?>
 <div class="card">
-  <?= card_head('Aportes', count($aportes) ? count($aportes) . ' aportes' : '', boton('Nuevo aporte', 'ghost', 'inversion.php?nueva=1&inversor=' . $id, 'agregar', false, true)) ?>
+  <?= card_head('Aportes', '', boton('Nuevo aporte', 'primary', 'inversion.php?nueva=1&inversor=' . $id, 'agregar', false, true)) ?>
+  <?= barra_local('inversor.php?id=' . $id, 'Número, modalidad o estado…') ?>
   <div class="data-table-wrap">
-    <table class="data-table" data-sin-orden>
-      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th data-no-sort>N°</th><th data-no-sort>Modalidad</th>
-        <th data-no-sort>Inicio</th><th data-no-sort>Vencimiento</th><th class="th-right" data-no-sort>Capital</th>
-        <th data-no-sort>Condición</th><th class="th-right" data-no-sort>Devengado a hoy</th><th data-no-sort>Estado</th></tr></thead>
+    <table class="data-table" data-local data-paginada data-unidad="aporte|aportes">
+      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>N°</th><th>Modalidad</th>
+        <th>Inicio</th><th>Vencimiento</th><th class="th-right">Capital</th>
+        <th>Condición</th><th class="th-right">Devengado a hoy</th><th>Estado</th></tr></thead>
       <tbody>
       <?php if (!$aportes): ?><tr><td colspan="9" class="no-data">Sin aportes todavía.</td></tr><?php endif; ?>
       <?php foreach ($aportes as $a): ?>
@@ -170,8 +166,9 @@ mensajes($errores);
           <td><div class="acciones"><?= btn_accion('ver', 'inversion.php?id=' . $a['id_inversion'], 'Ver el aporte') ?></div></td>
           <td class="mono td-fuerte"><a href="inversion.php?id=<?= (int) $a['id_inversion'] ?>"><?= h($a['nro_inversion']) ?></a></td>
           <td><?= h(MODALIDADES[$a['modalidad']]) ?> · <?= h($a['moneda']) ?></td>
-          <td><?= h(fecha($a['fecha_inicio'])) ?></td><td><?= h(fecha($a['fecha_vencimiento'])) ?></td>
-          <td class="td-right"><?= dinero($a['capital'], $a['moneda']) ?></td>
+          <td data-orden="<?= h((string) $a['fecha_inicio']) ?>"><?= h(fecha($a['fecha_inicio'])) ?></td>
+          <td data-orden="<?= h((string) $a['fecha_vencimiento']) ?>"><?= h(fecha($a['fecha_vencimiento'])) ?></td>
+          <td class="td-right" data-orden="<?= (float) $a['capital'] ?>"><?= dinero($a['capital'], $a['moneda']) ?></td>
           <td><?= h(condicion_inversion($a)) ?></td>
           <td class="td-right"><?= $a['estado'] === 'VIGENTE' ? dinero($a['interes_devengado'], $a['moneda']) : '<span class="td-muted">—</span>' ?></td>
           <td><?= estado_inversion($a['estado']) ?></td>
@@ -180,6 +177,7 @@ mensajes($errores);
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 <?php endif; ?>
 

@@ -56,12 +56,19 @@ if (es_post()) {
     csrf_exigir();
 }
 
-/** Simula a hoy y corre los controles. Devuelve [resumen, cuadro, controles]. */
-function sol_revisar(array $cliente, int $producto, float $monto, int $plazo): array
+/**
+ * Simula a hoy y corre los controles, con las otras solicitudes en curso
+ * del cliente ($excluir: la que se está modificando o controlando).
+ * Devuelve [resumen, cuadro, controles].
+ */
+function sol_revisar(array $cliente, int $tipo, float $monto, int $plazo, int $excluir = 0): array
 {
-    [$res, $cuadro] = prestamo_simular($producto, $monto, $plazo, date('Y-m-d'), null);
+    [$res, $cuadro] = prestamo_simular($tipo, $monto, $plazo, date('Y-m-d'), null);
     [$ctl] = prestamo_controles($cliente, (float) $res['valor_cuota']);
-    return [$res, $cuadro, sol_controles_limpios($ctl)];
+    $ctl = sol_controles_limpios($ctl);
+    $ctl = array_merge($ctl, sol_controles_en_curso($cliente, sol_en_curso((int) $cliente['id_cliente'], $excluir),
+                                                    $tipo, $monto, $plazo, (float) $res['valor_cuota'], $excluir === 0));
+    return [$res, $cuadro, $ctl];
 }
 
 // =====================================================================
@@ -69,6 +76,8 @@ function sol_revisar(array $cliente, int $producto, float $monto, int $plazo): a
 // =====================================================================
 if ($sol && !$modoForm && es_post()) {
     $coment = post_str('comentario');
+    // La versión que la persona tenía a la vista (null: formulario de antes del script).
+    $versionVista = post_str('version') !== '' ? (int) post_str('version') : null;
     $largo  = preg_match_all('/./su', $coment);
     try {
         if ($accion === 'decidir' && $autoriza) {
@@ -95,29 +104,31 @@ if ($sol && !$modoForm && es_post()) {
             }
             if (!$errores) {
                 if (sol_transicion($id, ['PENDIENTE'], $decision, ['resuelto_el' => 'NOW()', 'resuelto_por' => usuario_id(),
-                                                                   'resolucion' => $coment !== '' ? substr_utf8($coment, 500) : null])) {
+                                                                   'resolucion' => $coment !== '' ? substr_utf8($coment, 500) : null],
+                                   $versionVista)) {
                     sol_historial($id, $decision, $coment);
                     flash($decision === 'APROBADA' ? 'ok' : 'warning', 'Solicitud ' . $sol['nro_solicitud'] . ' '
                           . ['APROBADA' => 'aprobada: queda lista para liquidar.', 'OBSERVADA' => 'observada: vuelve al que la cargó.',
                              'RECHAZADA' => 'rechazada.'][$decision]);
                     redirigir('autorizaciones.php');
                 }
-                $errores[] = 'Otra persona la resolvió recién. Recargá la pantalla.';
+                $errores[] = sol_por_que_no($id, ['PENDIENTE']);
             }
         } elseif ($accion === 'anular' && $anulable) {
             if ($largo < SOLICITUD_COMENTARIO_MIN) {
                 $errores[] = 'Para anularla, escribí el motivo (al menos ' . SOLICITUD_COMENTARIO_MIN . ' letras).';
-            } elseif (sol_transicion($id, ['PENDIENTE', 'OBSERVADA', 'APROBADA'], 'ANULADA')) {
+            } elseif (sol_transicion($id, ['PENDIENTE', 'OBSERVADA', 'APROBADA'], 'ANULADA', [], $versionVista)) {
                 sol_historial($id, 'ANULADA', $coment);
                 flash('warning', 'Solicitud ' . $sol['nro_solicitud'] . ' anulada.');
                 redirigir('solicitud.php?id=' . $id);
             } else {
-                $errores[] = 'La solicitud cambió de estado recién. Recargá la pantalla.';
+                $errores[] = sol_por_que_no($id, ['PENDIENTE', 'OBSERVADA', 'APROBADA']);
             }
         } elseif ($accion === 'controlar' && $sol['estado'] === 'PENDIENTE' && ($autoriza || $puedeCargar)) {
             $cli = sol_buscar_cliente((string) $sol['id_cliente'], '')[0];
-            [$res, , $ctl] = sol_revisar($cli, (int) $sol['id_producto'], (float) $sol['monto'], (int) $sol['plazo']);
-            q('UPDATE solicitudes SET tna = ?, valor_cuota = ?, neto_desembolso = ?, total_a_pagar = ?, controles = ?, controles_el = NOW()
+            [$res, , $ctl] = sol_revisar($cli, (int) $sol['id_tipo_asociado'], (float) $sol['monto'], (int) $sol['plazo'], $id);
+            q('UPDATE solicitudes SET tna = ?, valor_cuota = ?, neto_desembolso = ?, total_a_pagar = ?, controles = ?, controles_el = NOW()'
+              . (columna_existe('solicitudes', 'version') ? ', version = version + 1' : '') . '
                 WHERE id_solicitud = ? AND estado = ?',
               [$res['tna'], $res['valor_cuota'], $res['neto_desembolso'], $res['total_a_pagar'], json_encode($ctl, JSON_UNESCAPED_UNICODE), $id, 'PENDIENTE']);
             flash('ok', 'Controles y cuota actualizados a hoy.');
@@ -138,13 +149,13 @@ $cuadro = [];
 $ctl = [];
 $docs = [];
 $revisado = false;
-$productos = $vendedores = [];
+$tipos = $vendedores = [];
 $vendPropio = null;
 $f = [];
 $firma = '';
 
 if ($modoForm) {
-    $campos = ['cliente', 'buscar', 'producto', 'monto', 'plazo', 'vendedor', 'telemarketing', 'destino', 'observaciones', 'comentario'];
+    $campos = ['cliente', 'buscar', 'tipo', 'monto', 'plazo', 'vendedor', 'telemarketing', 'destino', 'observaciones', 'comentario'];
     foreach ($campos as $c) {
         $f[$c] = es_post() ? post_str($c) : get_str($c);
     }
@@ -156,7 +167,7 @@ if ($modoForm) {
     if ($sol) {
         $f['cliente'] = (string) $sol['id_cliente'];                 // el cliente de una solicitud no se cambia
         if (!es_post()) {
-            $f['producto'] = (string) $sol['id_producto'];
+            $f['tipo'] = (string) $sol['id_tipo_asociado'];
             $f['monto'] = str_replace('.', ',', (string) (float) $sol['monto']);
             $f['plazo'] = (string) $sol['plazo'];
             $f['vendedor'] = (string) $sol['id_vendedor'];
@@ -168,9 +179,9 @@ if ($modoForm) {
     $f['telemarketing'] = $f['telemarketing'] === '1' ? '1' : '0';
 
     try {
-        $productos = q("SELECT p.*, EXISTS(SELECT 1 FROM tasas_vigencia t WHERE t.id_producto = p.id_producto
+        $tipos = q("SELECT p.*, EXISTS(SELECT 1 FROM tasas_vigencia t WHERE t.id_tipo_asociado = p.id_tipo_asociado
                                             AND t.vigencia_desde <= CURDATE()) AS con_tasa
-                          FROM productos p WHERE p.activo = 1 ORDER BY p.nombre");
+                          FROM tipos_asociado p WHERE p.activo = 1 ORDER BY p.nombre");
         $vendedores = q('SELECT id_vendedor, nombre FROM vendedores WHERE activo = 1 ORDER BY nombre');
         $vendPropio = sol_ve_todas() ? null : sol_vendedor_propio();
 
@@ -181,6 +192,9 @@ if ($modoForm) {
                 $f['cliente'] = (string) $cliente['id_cliente'];
                 if ($f['vendedor'] === '' && !es_post()) {
                     $f['vendedor'] = (string) $cliente['id_vendedor'];
+                }
+                if ($f['tipo'] === '' && !es_post() && !$sol) {
+                    $f['tipo'] = (string) ($cliente['id_tipo_asociado'] ?? '');   // el habitual del cliente: se puede cambiar
                 }
             } elseif (count($encontrados) > 1) {
                 $candidatos = $encontrados;
@@ -202,7 +216,7 @@ if ($modoForm) {
     }
 
     $firmar = function () use (&$f) {
-        return hash('sha256', implode('|', [$f['cliente'], $f['producto'], $f['monto'], $f['plazo'], $f['vendedor'], $f['telemarketing']]));
+        return hash('sha256', implode('|', [$f['cliente'], $f['tipo'], $f['monto'], $f['plazo'], $f['vendedor'], $f['telemarketing']]));
     };
 
     if (es_post() && in_array($accion, ['revisar', 'enviar'], true) && !$errores) {
@@ -211,8 +225,8 @@ if ($modoForm) {
         if (!$cliente) {
             $errores[] = 'Elegí el cliente.';
         }
-        if ((int) $f['producto'] <= 0) {
-            $errores[] = 'Elegí el producto.';
+        if ((int) $f['tipo'] <= 0) {
+            $errores[] = 'Elegí el tipo de asociado.';
         }
         if ($monto === null || $monto <= 0) {
             $errores[] = 'Escribí el monto que pide.';
@@ -231,7 +245,7 @@ if ($modoForm) {
         }
         if (!$errores) {
             try {
-                [$res, $cuadro, $ctl] = sol_revisar($cliente, (int) $f['producto'], $monto, (int) $plazo);
+                [$res, $cuadro, $ctl] = sol_revisar($cliente, (int) $f['tipo'], $monto, (int) $plazo, $sol ? $id : 0);
                 $revisado = true;
             } catch (Throwable $e) {
                 $errores[] = mensaje_bd($e);
@@ -246,35 +260,67 @@ if ($modoForm) {
             if (controles_hay($ctl, 'bloqueo')) {
                 $errores[] = 'Hay controles que impiden cargar la solicitud.';
             } else {
-                $datos = [(int) $f['producto'], (int) $f['vendedor'] ?: null, (int) $f['telemarketing'], round($monto, 2), (int) $plazo,
-                          $f['destino'] !== '' ? $f['destino'] : null, $f['observaciones'] !== '' ? $f['observaciones'] : null,
-                          $res['tna'], $res['valor_cuota'], $res['neto_desembolso'], $res['total_a_pagar'], json_encode($ctl, JSON_UNESCAPED_UNICODE)];
+                $pdo = db();
+                $conc = sol_concurrencia_instalada();
+                $idCli = (int) $cliente['id_cliente'];
+                $eraObservada = $sol && $sol['estado'] === 'OBSERVADA';
+                $versionVista = post_str('version') !== '' ? (int) post_str('version') : null;
+                $nuevoId = 0;
+                $nro = '';
                 try {
-                    if ($sol) {
-                        $eraObservada = $sol['estado'] === 'OBSERVADA';
-                        $st = db()->prepare("UPDATE solicitudes SET id_producto=?, id_vendedor=?, telemarketing=?, monto=?, plazo=?, destino=?, observaciones=?,
-                                                    tna=?, valor_cuota=?, neto_desembolso=?, total_a_pagar=?, controles=?, controles_el=NOW(),
-                                                    enviado_el = IF(estado = 'OBSERVADA', NOW(), enviado_el), estado = 'PENDIENTE'
-                                              WHERE id_solicitud = ? AND estado IN ('PENDIENTE','OBSERVADA')");
-                        $st->execute(array_merge($datos, [$id]));
-                        if ($st->rowCount() !== 1) {
-                            $errores[] = 'La solicitud cambió de estado recién y ya no se puede modificar.';
-                        } else {
-                            sol_historial($id, $eraObservada ? 'REENVIADA' : 'MODIFICADA', $f['comentario']);
-                            flash('ok', 'Solicitud ' . $sol['nro_solicitud'] . ($eraObservada ? ' enviada de nuevo a autorización.' : ' modificada.'));
-                            redirigir('solicitud.php?id=' . $id);
+                    // Una transacción corta: los controles lentos (el BCRA) ya se
+                    // corrieron afuera. Bloquea solo la fila del cliente: dos
+                    // solicitudes del mismo cliente se graban de a una y las de
+                    // clientes distintos no se esperan. En READ COMMITTED, lo que se
+                    // lee después del bloqueo es lo último grabado: la segunda ve a
+                    // la primera (una igual se frena; las demás quedan advertidas).
+                    $pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+                    $pdo->beginTransaction();
+                    q('SELECT id_cliente FROM clientes WHERE id_cliente = ? FOR UPDATE', [$idCli]);
+                    $ctl = array_merge(sol_controles_sin_en_curso($ctl),
+                                       sol_controles_en_curso($cliente, sol_en_curso($idCli, $sol ? $id : 0), (int) $f['tipo'], $monto,
+                                                              (int) $plazo, (float) $res['valor_cuota'], !$sol));
+                    foreach ($ctl as $c) {
+                        if (($c['n'] ?? '') === 'bloqueo') {
+                            throw new SolicitudFrenada($c['t']);
                         }
+                    }
+                    $datos = [(int) $f['tipo'], (int) $f['vendedor'] ?: null, (int) $f['telemarketing'], round($monto, 2), (int) $plazo,
+                              $f['destino'] !== '' ? $f['destino'] : null, $f['observaciones'] !== '' ? $f['observaciones'] : null,
+                              $res['tna'], $res['valor_cuota'], $res['neto_desembolso'], $res['total_a_pagar'], json_encode($ctl, JSON_UNESCAPED_UNICODE)];
+                    if ($sol) {
+                        $conVersion = $conc && $versionVista !== null;
+                        $st = $pdo->prepare("UPDATE solicitudes SET id_tipo_asociado=?, id_vendedor=?, telemarketing=?, monto=?, plazo=?, destino=?, observaciones=?,
+                                                    tna=?, valor_cuota=?, neto_desembolso=?, total_a_pagar=?, controles=?, controles_el=NOW(),
+                                                    enviado_el = IF(estado = 'OBSERVADA', NOW(), enviado_el), estado = 'PENDIENTE'"
+                                          . ($conc ? ', version = version + 1' : '') . "
+                                              WHERE id_solicitud = ? AND estado IN ('PENDIENTE','OBSERVADA')" . ($conVersion ? ' AND version = ?' : ''));
+                        $st->execute(array_merge($datos, [$id], $conVersion ? [$versionVista] : []));
+                        if ($st->rowCount() !== 1) {
+                            $f2 = q1('SELECT estado FROM solicitudes WHERE id_solicitud = ?', [$id]);
+                            throw new SolicitudFrenada($f2 && in_array($f2['estado'], ['PENDIENTE', 'OBSERVADA'], true)
+                                ? 'Otra persona cambió la solicitud mientras la modificabas: volvé a abrirla y revisala.'
+                                : 'La solicitud cambió de estado recién y ya no se puede modificar.');
+                        }
+                        sol_historial($id, $eraObservada ? 'REENVIADA' : 'MODIFICADA', $f['comentario']);
+                    } elseif ($conc) {
+                        $nro = sol_nuevo_nro();
+                        q('INSERT INTO solicitudes (nro_solicitud, id_cliente, id_tipo_asociado, id_vendedor, telemarketing, monto, plazo, destino, observaciones,
+                                                    tna, valor_cuota, neto_desembolso, total_a_pagar, controles, controles_el, creado_por)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?)',
+                          array_merge([$nro, $idCli], $datos, [usuario_id()]));
+                        $nuevoId = (int) $pdo->lastInsertId();
+                        sol_historial($nuevoId, 'CREADA', null);
                     } else {
-                        $nuevoId = 0;
-                        $nro = '';
+                        // Sin financiera_solicitudes_concurrencia.sql: el número de antes (S-000001).
                         for ($intento = 0; $intento < 3 && !$nuevoId; $intento++) {
                             $nro = sol_proximo_nro($intento);
                             try {
-                                q('INSERT INTO solicitudes (nro_solicitud, id_cliente, id_producto, id_vendedor, telemarketing, monto, plazo, destino, observaciones,
+                                q('INSERT INTO solicitudes (nro_solicitud, id_cliente, id_tipo_asociado, id_vendedor, telemarketing, monto, plazo, destino, observaciones,
                                                             tna, valor_cuota, neto_desembolso, total_a_pagar, controles, controles_el, creado_por)
                                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?)',
-                                  array_merge([$nro, (int) $cliente['id_cliente']], $datos, [usuario_id()]));
-                                $nuevoId = (int) db()->lastInsertId();
+                                  array_merge([$nro, $idCli], $datos, [usuario_id()]));
+                                $nuevoId = (int) $pdo->lastInsertId();
                             } catch (PDOException $e) {
                                 if ((int) ($e->errorInfo[1] ?? 0) === 1062 && strpos($e->getMessage(), 'uq_solicitudes_nro') !== false) {
                                     continue;                      // otro cargó al mismo tiempo: siguiente número
@@ -282,15 +328,25 @@ if ($modoForm) {
                                 throw $e;
                             }
                         }
-                        if ($nuevoId) {
-                            sol_historial($nuevoId, 'CREADA', null);
-                            flash('ok', 'Solicitud ' . $nro . ' enviada a autorización: ' . money($monto) . ' en ' . (int) $plazo . ' cuotas de ' . money($res['valor_cuota']) . '.');
-                            redirigir('solicitud.php?id=' . $nuevoId);
+                        if (!$nuevoId) {
+                            throw new SolicitudFrenada('No se pudo asignar un número de solicitud. Probá de nuevo.');
                         }
-                        $errores[] = 'No se pudo asignar un número de solicitud. Probá de nuevo.';
+                        sol_historial($nuevoId, 'CREADA', null);
                     }
+                    $pdo->commit();
                 } catch (Throwable $e) {
-                    $errores[] = mensaje_bd($e);
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    $errores[] = $e instanceof SolicitudFrenada ? $e->getMessage() : mensaje_bd($e);
+                }
+                if (!$errores) {
+                    if ($sol) {
+                        flash('ok', 'Solicitud ' . $sol['nro_solicitud'] . ($eraObservada ? ' enviada de nuevo a autorización.' : ' modificada.'));
+                        redirigir('solicitud.php?id=' . $id);
+                    }
+                    flash('ok', 'Solicitud ' . $nro . ' enviada a autorización: ' . money($monto) . ' en ' . (int) $plazo . ' cuotas de ' . money($res['valor_cuota']) . '.');
+                    redirigir('solicitud.php?id=' . $nuevoId);
                 }
             }
         }
@@ -361,6 +417,7 @@ if ($modoForm):
 <form method="post" action="solicitud.php<?= $sol ? '?id=' . $id . '&amp;editar=1' : '' ?>" id="frm-solicitud">
   <?= csrf_campo() ?>
   <input type="hidden" name="firma" value="<?= h($firma) ?>">
+  <?php if ($sol && isset($sol['version'])): ?><input type="hidden" name="version" value="<?= h(post_str('version') !== '' ? post_str('version') : (string) $sol['version']) ?>"><?php endif; ?>
   <div class="card">
     <?= card_head('Datos de la solicitud') ?>
     <div class="bloque">
@@ -406,16 +463,16 @@ if ($modoForm):
           <?php endif; ?>
         <?php endif; ?>
         <div class="campo" style="--span:4">
-          <label for="producto">Producto <span class="req">*</span></label>
-          <select id="producto" name="producto" required>
+          <label for="tipo">Tipo de asociado <span class="req">*</span></label>
+          <select id="tipo" name="tipo" required>
             <option value="">Elegí…</option>
-            <?php foreach ($productos as $p): ?>
-              <option value="<?= (int) $p['id_producto'] ?>" <?= (string) $p['id_producto'] === $f['producto'] ? 'selected' : '' ?> <?= $p['con_tasa'] ? '' : 'disabled' ?>
+            <?php foreach ($tipos as $p): ?>
+              <option value="<?= (int) $p['id_tipo_asociado'] ?>" <?= (string) $p['id_tipo_asociado'] === $f['tipo'] ? 'selected' : '' ?> <?= $p['con_tasa'] ? '' : 'disabled' ?>
                       data-plazo="<?= (int) $p['plazo_min'] ?>-<?= (int) $p['plazo_max'] ?>" data-monto="<?= h(money($p['monto_min'])) ?> a <?= h(money($p['monto_max'])) ?>">
                 <?= h($p['nombre']) ?><?= $p['con_tasa'] ? '' : ' (sin tasa vigente)' ?></option>
             <?php endforeach; ?>
           </select>
-          <span class="campo-ayuda" id="prod-ayuda"></span>
+          <span class="campo-ayuda" id="tipo-ayuda"></span>
         </div>
         <div class="campo" style="--span:3">
           <?php if ($vendPropio): ?>
@@ -495,7 +552,7 @@ if ($modoForm):
 
 <script>
 (function () {
-  var sel = document.getElementById('producto'), ayuda = document.getElementById('prod-ayuda');
+  var sel = document.getElementById('tipo'), ayuda = document.getElementById('tipo-ayuda');
   function mostrar() {
     var op = sel.options[sel.selectedIndex];
     ayuda.textContent = op && op.value ? op.getAttribute('data-plazo').replace('-', ' a ') + ' cuotas · ' + op.getAttribute('data-monto') : '';
@@ -535,7 +592,8 @@ if ($modoForm):
     <?= $dato('Monto pedido', money($sol['monto']), true) ?>
     <?= $dato('Cuotas', (int) $sol['plazo'] . ' de ' . money($sol['valor_cuota']), true) ?>
     <?= $dato('Cliente', $verCliente ? '<a href="cliente.php?id=' . (int) $sol['id_cliente'] . '">' . h($sol['denominacion']) . '</a>' : h($sol['denominacion'])) ?>
-    <?= $dato('Producto', h($sol['producto'])) ?>
+    <?= $dato('Tipo de asociado', h($sol['tipo_asociado'])) ?>
+    <?= !empty($sol['reparticion']) ? $dato('Repartición', h($sol['reparticion'])) : '' ?>
     <?= $dato('TNA', pct($sol['tna'])) ?>
     <?= $dato('Neto a desembolsar', money($sol['neto_desembolso'])) ?>
     <?= $dato('Total a pagar', money($sol['total_a_pagar'])) ?>
@@ -573,6 +631,7 @@ if ($modoForm):
     <form method="post" action="solicitud.php?id=<?= $id ?>" class="card card-decision">
       <?= csrf_campo() ?>
       <input type="hidden" name="accion" value="decidir">
+      <?php if (isset($sol['version'])): ?><input type="hidden" name="version" value="<?= (int) $sol['version'] ?>"><?php endif; ?>
       <?= card_head('Autorización', 'espera ' . sol_espera($sol['enviado_el'])) ?>
       <div class="bloque">
         <?php $dec = post_str('decision'); ?>
@@ -599,6 +658,7 @@ if ($modoForm):
           data-confirmar-titulo="Anular la solicitud" data-confirmar-boton="Anular" data-peligro>
       <?= csrf_campo() ?>
       <input type="hidden" name="accion" value="anular">
+      <?php if (isset($sol['version'])): ?><input type="hidden" name="version" value="<?= (int) $sol['version'] ?>"><?php endif; ?>
       <?= card_head('Anular', 'si el cliente desistió o se cargó por error') ?>
       <div class="bloque"><div class="campos">
         <div class="campo" style="--span:12"><label for="motivo-anular">Motivo</label>

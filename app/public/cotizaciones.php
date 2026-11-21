@@ -135,8 +135,7 @@ layout_inicio('Cotizaciones', 'cotizaciones');
 titulo('Cotizaciones', 'Moneda extranjera · fuente: Banco Central (Estadísticas Cambiarias)'
        . ($ultima ? ' · actualizado el ' . date('d/m/Y H:i', strtotime($ultima)) : ''),
        '<form method="post" class="form-en-linea">' . csrf_campo() . '<input type="hidden" name="accion" value="actualizar">'
-       . boton('Actualizar ahora', 'primary', null, 'filtro', true) . '</form>'
-       . boton('Exportar a Excel', 'excel', url_con(['export' => 'xlsx']), 'planilla'));
+       . boton('Actualizar ahora', 'primary', null, 'filtro', true) . '</form>');
 if ($aviso) {
     alerta($aviso, 'warning');
 }
@@ -165,10 +164,13 @@ mensajes($errores);
         </select></label>
       <label class="filtro-campo"><span class="filtro-lbl">Período</span>
         <select name="dias" class="filtro" onchange="this.form.submit()"><?= opciones([30 => '30 días', 90 => '90 días', 180 => '6 meses', 365 => '1 año', 730 => '2 años'], $fDias) ?></select></label>
+      <div class="filter-bar-fin">
       <?php if ($serie): $p0 = (float) $serie[0]['cotizacion']; $p1 = (float) end($serie)['cotizacion']; ?>
-        <span class="filter-count" style="margin-left:auto">del <?= h(fecha($serie[0]['fecha'])) ?> al <?= h(fecha(end($serie)['fecha'])) ?>:
+        <span class="filter-count">del <?= h(fecha($serie[0]['fecha'])) ?> al <?= h(fecha(end($serie)['fecha'])) ?>:
           <strong class="<?= $p1 >= $p0 ? 'cot-sube' : 'cot-baja' ?>"><?= h(number_format(($p1 / $p0 - 1) * 100, 2, ',', '.')) ?> %</strong></span>
       <?php endif; ?>
+        <a class="btn btn-excel btn-sm" href="<?= h(url_con(['export' => 'xlsx'])) ?>"><?= icono('planilla') ?>Exportar a Excel</a>
+      </div>
     </form>
     <div class="bloque"><?= cot_grafico($serie) ?></div>
     <div class="data-table-wrap cot-serie">
@@ -191,7 +193,7 @@ mensajes($errores);
       <?= card_head('Todas las monedas', $fechaDia ? fecha($fechaDia) : '') ?>
       <form method="get" class="filter-bar">
         <label class="filtro-campo"><span class="filtro-lbl">Fecha</span>
-          <input type="date" name="fecha" value="<?= h($fechaDia ?? '') ?>" max="<?= date('Y-m-d') ?>" class="filter-input" onchange="this.form.submit()"></label>
+          <input type="date" name="fecha" value="<?= h($fechaDia ?? '') ?>" max="<?= date('Y-m-d') ?>" class="filtro" onchange="this.form.submit()"></label>
         <input type="hidden" name="moneda" value="<?= h($fMoneda) ?>">
       </form>
       <div class="data-table-wrap cot-todas">

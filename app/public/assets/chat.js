@@ -1,6 +1,6 @@
 /* Mensajes internos (chat_api.php). Tres piezas, cada una se arma si está
    su elemento en la página:
-     [data-chat-contador]  el globito flotante de Mensajes: cada 20 s pide
+     [data-chat-contador]  el botón Mensajes de la barra: cada 20 s pide
                            cuántas conversaciones tienen algo sin leer.
      [data-chat-hilo]      una conversación (en chat.php, y el hilo de la
                            ficha de la solicitud con data-solicitud).
@@ -156,7 +156,7 @@
     ding();
   }
 
-  // ── Globito flotante de Mensajes ──────────────────────────────────────────
+  // ── El botón Mensajes de la barra ────────────────────────────────────────
   var contador = document.querySelector('[data-chat-contador]');
   var tituloBase = document.title;
   function ponerContador(n) {

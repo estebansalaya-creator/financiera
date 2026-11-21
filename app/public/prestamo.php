@@ -37,11 +37,11 @@ $cuotas = $pagos = $movs = $comisiones = [];
 $hoy = null;
 $cancelacion = null;
 try {
-    $p = q1('SELECT p.*, c.denominacion, c.cuit, c.tipo AS cliente_tipo, pr.nombre AS producto, pr.codigo AS producto_codigo,
+    $p = q1('SELECT p.*, c.denominacion, c.cuit, c.tipo AS cliente_tipo, ta.nombre AS tipo_asociado, ta.codigo AS tipo_asociado_codigo,
                     v.nombre AS vendedor, v.codigo AS vendedor_codigo, r.descripcion AS regla
                FROM prestamos p
                JOIN clientes c ON c.id_cliente = p.id_cliente
-               JOIN productos pr ON pr.id_producto = p.id_producto
+               JOIN tipos_asociado ta ON ta.id_tipo_asociado = p.id_tipo_asociado
                LEFT JOIN vendedores v ON v.id_vendedor = p.id_vendedor
                LEFT JOIN comision_reglas r ON r.id_regla = p.id_comision_regla
               WHERE p.id_prestamo = ?', [$id]);
@@ -53,9 +53,9 @@ try {
                            LEFT JOIN comisiones_liquidacion l ON l.id_liquidacion = d.id_liquidacion
                           WHERE d.id_prestamo = ? ORDER BY d.fecha, d.id_devengada', [$id]);
         if ($p['estado'] === 'VIGENTE') {
-            $r = sp_resultados('CALL sp_estado_cuenta(?, CURDATE(), ?)', [$id, 'NORMAL']);
+            $r = sp_consulta('CALL sp_estado_cuenta(?, CURDATE(), ?)', [$id, 'NORMAL']);
             $hoy = $r[1][0] ?? null;
-            $r = sp_resultados('CALL sp_estado_cuenta(?, CURDATE(), ?)', [$id, 'CANCELACION']);
+            $r = sp_consulta('CALL sp_estado_cuenta(?, CURDATE(), ?)', [$id, 'CANCELACION']);
             $cancelacion = $r[1][0] ?? null;
         }
     }
@@ -79,7 +79,7 @@ $ctl = $p && $p['controles'] ? (json_decode($p['controles'], true) ?: []) : [];
 if ($p && get_str('export') === 'pdf') {
     require_once __DIR__ . '/../inc/pdf.php';
     $rep = new PdfReporte('Préstamo ' . $p['nro_prestamo'] . ' · plan de pagos',
-                          $p['denominacion'] . ' · CUIT/CUIL ' . cuit_fmt($p['cuit']) . ' · ' . $p['producto'], false);
+                          $p['denominacion'] . ' · CUIT/CUIL ' . cuit_fmt($p['cuit']) . ' · ' . $p['tipo_asociado'], false);
     $rep->indicadores([
         ['Capital', money($p['capital'])],
         ['Cuotas', (int) $p['plazo'] . ' de ' . money($p['valor_cuota'])],
@@ -130,9 +130,9 @@ if (!$p) {
 }
 
 titulo('Préstamo ' . $p['nro_prestamo'],
-       $p['denominacion'] . ' · ' . cuit_fmt($p['cuit']) . ' · ' . $p['producto'],
+       $p['denominacion'] . ' · ' . cuit_fmt($p['cuit']) . ' · ' . $p['tipo_asociado'],
        boton('Plan de pagos PDF', 'pdf', 'prestamo.php?id=' . $id . '&export=pdf', 'pdf', false, false, ['target' => '_blank', 'rel' => 'noopener'])
-       . ($p['estado'] === 'VIGENTE' ? boton('Cobrar', 'ok', 'cobrar.php?prestamo=' . $id, 'dinero') : ''),
+       . ($p['estado'] === 'VIGENTE' ? boton('Cobrar en efectivo', 'ok', 'cobrar.php?prestamo=' . $id, 'dinero') : ''),
        '<a href="prestamos.php">Préstamos</a> / <a href="cliente.php?id=' . (int) $p['id_cliente'] . '">' . h($p['denominacion']) . '</a> / ' . h($p['nro_prestamo']));
 mensajes($errores);
 ?>
@@ -158,10 +158,32 @@ mensajes($errores);
     <?= card_head('Datos') ?>
     <dl class="datos-lista">
       <dt>Cliente</dt><dd><a href="cliente.php?id=<?= (int) $p['id_cliente'] ?>"><?= h($p['denominacion']) ?></a> <span class="mono"><?= h(cuit_fmt($p['cuit'])) ?></span></dd>
-      <dt>Producto</dt><dd><?= h($p['producto']) ?></dd>
+      <dt>Tipo de asociado</dt><dd><?= h($p['tipo_asociado']) ?></dd>
       <dt>Liquidación</dt><dd><?= h(fecha($p['fecha_liquidacion'])) ?> · primer vencimiento <?= h(fecha($p['fecha_primer_vto'])) ?></dd>
       <dt>Tasas</dt><dd>TNA <?= pct($p['tna']) ?> · TEA <?= pct(pow(1 + (float) $p['tna'] / 12, 12) - 1) ?> · punitoria <?= pct($p['tasa_punitoria']) ?> · IVA <?= pct($p['alicuota_iva'], 0) ?></dd>
-      <dt>Desembolso</dt><dd><?= money($p['neto_desembolso']) ?> (gastos de otorgamiento <?= money($p['gastos_otorg']) ?>)</dd>
+      <?php $ctaDes = !empty($p['id_cuenta_fondos']) ? q1('SELECT id_cuenta_fondos, nombre FROM cuentas_fondos WHERE id_cuenta_fondos = ?', [(int) $p['id_cuenta_fondos']]) : null; ?>
+      <dt>Desembolso</dt><dd><?= money($p['neto_desembolso']) ?> (gastos de otorgamiento <?= money($p['gastos_otorg']) ?>)<?php if ($ctaDes): ?>
+        <span class="td-muted">· <?= h(strtolower(['TRANSFERENCIA' => 'Transferencia', 'CHEQUE' => 'Cheque', 'EFECTIVO' => 'Efectivo'][$p['medio_desembolso']] ?? (string) $p['medio_desembolso'])) ?>
+        <?= $p['referencia_desembolso'] ? ($p['medio_desembolso'] === 'CHEQUE' ? 'N° ' : '') . h($p['referencia_desembolso']) . ' ' : '' ?>desde
+        <?= puede('movimientos_fondos.php') ? '<a href="movimientos_fondos.php?cuenta=' . (int) $ctaDes['id_cuenta_fondos'] . '">' . h($ctaDes['nombre']) . '</a>' : h($ctaDes['nombre']) ?></span><?php endif; ?>
+        <?php
+          // Con órdenes de pago: la orden del desembolso y, si se pagó, cómo.
+          $opDes = null;
+          try {
+              $opDes = q1("SELECT o.id_orden, o.nro_orden, o.estado, g.nro_pago, g.fecha, g.medio, g.cheque_numero, c.nombre AS cuenta
+                             FROM ordenes_pago o
+                             LEFT JOIN pagos_emitidos g ON g.id_orden = o.id_orden AND g.estado = 'EMITIDO'
+                             LEFT JOIN cuentas_fondos c ON c.id_cuenta_fondos = g.id_cuenta_fondos
+                            WHERE o.id_prestamo = ?", [(int) $p['id_prestamo']]);
+          } catch (Throwable $e) {
+          }
+          if ($opDes):
+            $opTxt = ['APROBADA' => 'a pagar', 'PAGADA' => 'pagada', 'ANULADA' => 'anulada'][$opDes['estado']] ?? strtolower($opDes['estado']);
+        ?>
+        <span class="segunda-linea">Orden de pago <?= puede('ordenes_pago.php') ? '<a href="ordenes_pago.php?id=' . (int) $opDes['id_orden'] . '">' . h($opDes['nro_orden']) . '</a>' : h($opDes['nro_orden']) ?>
+          · <?= h($opTxt) ?><?= $opDes['nro_pago'] ? ' con el pago ' . h($opDes['nro_pago']) . ' del ' . h(fecha($opDes['fecha'])) . ', '
+              . h(strtolower(['TRANSFERENCIA' => 'Transferencia', 'CHEQUE' => 'Cheque N° ' . $opDes['cheque_numero'], 'EFECTIVO' => 'Efectivo'][$opDes['medio']] ?? $opDes['medio'])) . ' desde ' . h($opDes['cuenta']) : '' ?></span>
+        <?php endif; ?></dd>
       <dt>Total a pagar</dt><dd><?= money((float) $p['capital'] + (float) $p['total_intereses'] + (float) $p['total_iva']) ?>
         <span class="td-muted">(intereses <?= money($p['total_intereses']) ?> · IVA <?= money($p['total_iva']) ?>)</span></dd>
       <dt>Vendedor</dt><dd><?= $p['vendedor'] ? h($p['vendedor']) : '<span class="td-muted">sin vendedor</span>' ?></dd>
@@ -226,23 +248,26 @@ mensajes($errores);
 
 <div class="grilla-2">
   <div class="card">
-    <?= card_head('Pagos', count($pagos) ? count($pagos) . ' pagos' : '') ?>
+    <?= card_head('Pagos') ?>
+    <?= barra_local('prestamo.php?id=' . $id, 'Recibo o medio…') ?>
     <div class="data-table-wrap">
-      <table class="data-table" data-sin-orden>
-        <thead><tr><th data-no-sort>Fecha</th><th data-no-sort>Recibo</th><th data-no-sort>Medio</th><th class="th-right" data-no-sort>Importe</th><th data-no-sort>Estado</th></tr></thead>
+      <table class="data-table" data-local data-paginada data-unidad="pago|pagos">
+        <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Fecha</th><th>Recibo</th><th>Medio</th><th class="th-right">Importe</th><th>Estado</th></tr></thead>
         <tbody>
-        <?php if (!$pagos): ?><tr><td colspan="5" class="no-data">Sin pagos todavía.</td></tr><?php endif; ?>
+        <?php if (!$pagos): ?><tr><td colspan="6" class="no-data">Sin pagos todavía.</td></tr><?php endif; ?>
         <?php foreach ($pagos as $g): ?>
           <tr<?= $g['estado'] === 'ANULADO' ? ' class="fila-baja"' : '' ?>>
-            <td><?= h(fecha($g['fecha'])) ?></td><td class="mono"><a href="recibo.php?id=<?= (int) $g['id_pago'] ?>"><?= h($g['nro_recibo'] ?? '') ?></a></td>
+            <td><div class="acciones"><?= btn_accion('ver', 'recibo.php?id=' . (int) $g['id_pago'], 'Ver el recibo') ?></div></td>
+            <td data-orden="<?= h((string) $g['fecha']) ?>"><?= h(fecha($g['fecha'])) ?></td><td class="mono"><a href="recibo.php?id=<?= (int) $g['id_pago'] ?>"><?= h($g['nro_recibo'] ?? '') ?></a></td>
             <td><?= h(ucfirst(strtolower($g['medio']))) ?><?= $g['modo'] === 'CANCELACION' ? ' · cancelación' : '' ?></td>
-            <td class="td-right"><?= money($g['importe']) ?></td>
+            <td class="td-right" data-orden="<?= (float) $g['importe'] ?>"><?= money($g['importe']) ?></td>
             <td><?= $g['estado'] === 'ANULADO' ? estado('Anulado', 'neutro') : estado('Aplicado', 'ok') ?></td>
           </tr>
         <?php endforeach; ?>
         </tbody>
       </table>
     </div>
+    <?= paginacion_local() ?>
   </div>
 
   <div class="card">

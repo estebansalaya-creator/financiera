@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/inversiones.php';
+require __DIR__ . '/../inc/fondos.php';
 
 // ---------------------------------------------------------------------
 // Aporte de un inversor
@@ -13,6 +14,10 @@ require __DIR__ . '/../inc/inversiones.php';
 //   inversion.php?id=N&export=pdf        constancia del aporte
 //   inversion.php?id=N&liq=L&export=pdf  liquidación en PDF
 //   POST accion = crear | liquidar | pagar | anular_liq | anular
+// Con Tesorería, el capital del aporte entra en una cuenta de fondos y el
+// pago al inversor sale de otra (de la misma moneda): los dos quedan en el
+// libro de fondos (sp_fondos_aporte, sp_fondos_pago_inversor). Las
+// renovaciones no mueven plata.
 // ---------------------------------------------------------------------
 
 $id      = (int) get_str('id');
@@ -31,7 +36,25 @@ function post_lista_txt(string $k): array
 // Acciones
 // ---------------------------------------------------------------------
 $f = ['inversor' => get_str('inversor'), 'modalidad' => 'TASA_FIJA', 'moneda' => 'ARS', 'capital' => '', 'fecha_inicio' => $hoy,
-      'plazo' => '90', 'fecha_vencimiento' => '', 'tna' => '', 'pct' => '', 'observaciones' => '', 'asig' => []];
+      'plazo' => '90', 'fecha_vencimiento' => '', 'tna' => '', 'pct' => '', 'observaciones' => '', 'asig' => [],
+      'cuenta' => '', 'medio_ingreso' => 'TRANSFERENCIA', 'ref_ingreso' => ''];
+
+// Tesorería: las cuentas de fondos habilitadas (de las dos monedas) y la predeterminada de cada moneda.
+$conFondos = false;
+$cuentasInv = $predet = $nombresCuenta = [];
+try {
+    if (fondos_instalado()) {
+        $conFondos = true;
+        $cuentasInv = cuentas_fondos();
+        $nombresCuenta = array_column(cuentas_fondos(null, true), 'nombre', 'id_cuenta_fondos');
+        foreach (array_keys(MONEDAS) as $m) {
+            $predet[$m] = cuenta_predeterminada($m);
+        }
+    }
+} catch (Throwable $e) {
+    error_log('[financiera] cuentas de fondos: ' . $e->getMessage());
+}
+$f['cuenta'] = (string) ($predet['ARS'] ?? '');
 if (es_post()) {
     csrf_exigir();
     $accion = post_str('accion');
@@ -40,7 +63,8 @@ if (es_post()) {
         $f = ['inversor' => post_str('inversor'), 'modalidad' => post_str('modalidad'), 'moneda' => post_str('moneda'),
               'capital' => post_str('capital'), 'fecha_inicio' => post_str('fecha_inicio'), 'plazo' => post_str('plazo'),
               'fecha_vencimiento' => post_str('fecha_vencimiento'), 'tna' => post_str('tna'), 'pct' => post_str('pct'),
-              'observaciones' => post_str('observaciones'), 'asig' => []];
+              'observaciones' => post_str('observaciones'), 'asig' => [],
+              'cuenta' => post_str('cuenta'), 'medio_ingreso' => post_str('medio_ingreso'), 'ref_ingreso' => post_str('ref_ingreso')];
         $nueva = true;
         $ps = post_lista_txt('asig_prestamo');
         $ms = post_lista_txt('asig_monto');
@@ -71,6 +95,17 @@ if (es_post()) {
         }
         if ($cap === null || $cap <= 0) {
             $errores[] = 'Escribí el capital.';
+        }
+        if ($cuentasInv) {
+            $ci = $cuentasInv[(int) $f['cuenta']] ?? null;
+            if (!$ci) {
+                $errores[] = 'Elegí la cuenta de fondos donde ingresa el capital.';
+            } elseif (isset(MONEDAS[$f['moneda']]) && $ci['moneda'] !== $f['moneda']) {
+                $errores[] = 'El aporte es en ' . strtolower(MONEDAS[$f['moneda']]) . ' y la cuenta ' . $ci['nombre'] . ' en ' . strtolower(MONEDAS[$ci['moneda']]) . '.';
+            }
+            if (!isset(MEDIOS_PAGO_INV[$f['medio_ingreso']])) {
+                $errores[] = 'Elegí cómo ingresó el capital.';
+            }
         }
         if ($ini === null || $ini > date('Y-m-d', strtotime('+30 days'))) {
             $errores[] = 'La fecha de inicio no es válida.';
@@ -124,6 +159,10 @@ if (es_post()) {
                   [(int) $f['inversor'], $f['modalidad'], $f['moneda'], round($cap, 2), $ini, $vto,
                    $tna === null ? null : round($tna / 100, 6), $pct === null ? null : round($pct / 100, 6), $f['observaciones'] ?: null, usuario_id()]);
                 $id = (int) $pdo->lastInsertId();
+                if ($cuentasInv) {
+                    q('UPDATE inversiones SET id_cuenta_fondos = ?, medio_ingreso = ?, referencia_ingreso = ? WHERE id_inversion = ?',
+                      [(int) $f['cuenta'], $f['medio_ingreso'], $f['ref_ingreso'] !== '' ? mb_substr($f['ref_ingreso'], 0, 100) : null, $id]);
+                }
                 $nro = parametro('NRO_INVERSION_PREFIJO', 'I-') . str_pad((string) $id, 6, '0', STR_PAD_LEFT);
                 q('UPDATE inversiones SET nro_inversion = ? WHERE id_inversion = ?', [$nro, $id]);
                 foreach ($f['asig'] as $a) {
@@ -142,6 +181,9 @@ if (es_post()) {
                         throw new RuntimeException('El préstamo ' . $exceso['nro_prestamo'] . ' quedaría fondeado por más que su capital.');
                     }
                 }
+                if ($conFondos) {
+                    fondos_call('CALL sp_fondos_aporte(?)', [$id]);      // entra el capital al libro de fondos
+                }
                 $pdo->commit();
                 flash('ok', 'Aporte ' . $nro . ' cargado: ' . dinero($cap, $f['moneda']) . ' hasta el ' . fecha($vto) . '.');
                 redirigir('inversion.php?id=' . $id);
@@ -149,7 +191,7 @@ if (es_post()) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
-                $errores[] = $e instanceof RuntimeException ? $e->getMessage() : mensaje_bd($e);
+                $errores[] = $e instanceof RuntimeException && !$e instanceof PDOException ? $e->getMessage() : mensaje_bd($e);
                 $id = 0;
             }
         }
@@ -170,16 +212,34 @@ if (es_post()) {
         }
     } elseif ($id > 0 && $accion === 'pagar') {
         $fp = leer_fecha(post_str('fecha_pago'));
+        $idLiq = (int) post_str('id_liquidacion');
+        $liqP = q1('SELECT moneda FROM inversiones_liquidaciones WHERE id_liquidacion = ? AND id_inversion = ?', [$idLiq, $id]);
+        $ctaP = $cuentasInv[(int) post_str('cuenta')] ?? null;
         if ($fp === null || $fp > $hoy || !isset(MEDIOS_PAGO_INV[post_str('medio')])) {
             $errores[] = 'Para registrar el pago hacen falta la fecha (no futura) y el medio.';
+        } elseif ($cuentasInv && (!$ctaP || !$liqP || $ctaP['moneda'] !== $liqP['moneda'])) {
+            $errores[] = 'Elegí la cuenta de fondos de la que sale el pago (de la misma moneda que la liquidación).';
+        } elseif ($cuentasInv && post_str('medio') === 'CHEQUE' && !preg_match('/^\d{1,18}$/', post_str('referencia'))) {
+            $errores[] = 'En un pago con cheque, la referencia es el número del cheque (solo números).';
         } else {
+            $pdo = db();
             try {
-                $st = db()->prepare("UPDATE inversiones_liquidaciones SET estado = 'PAGADA', pagado_el = ?, medio = ?, referencia = ?
+                $pdo->beginTransaction();
+                $st = $pdo->prepare("UPDATE inversiones_liquidaciones SET estado = 'PAGADA', pagado_el = ?, medio = ?, referencia = ?
                                       WHERE id_liquidacion = ? AND id_inversion = ? AND estado = 'A_PAGAR'");
-                $st->execute([$fp, post_str('medio'), substr(post_str('referencia'), 0, 100) ?: null, (int) post_str('id_liquidacion'), $id]);
-                flash($st->rowCount() ? 'ok' : 'warning', $st->rowCount() ? 'Pago al inversor registrado.' : 'Esa liquidación ya no estaba a pagar.');
+                $st->execute([$fp, post_str('medio'), substr(post_str('referencia'), 0, 100) ?: null, $idLiq, $id]);
+                $pagada = $st->rowCount() > 0;
+                if ($pagada && $conFondos) {
+                    q('UPDATE inversiones_liquidaciones SET id_cuenta_fondos = ? WHERE id_liquidacion = ?', [$ctaP ? (int) $ctaP['id_cuenta_fondos'] : null, $idLiq]);
+                    fondos_call('CALL sp_fondos_pago_inversor(?)', [$idLiq]);   // sale el pago del libro de fondos
+                }
+                $pdo->commit();
+                flash($pagada ? 'ok' : 'warning', $pagada ? 'Pago al inversor registrado' . ($ctaP ? ': sale de ' . $ctaP['nombre'] : '') . '.' : 'Esa liquidación ya no estaba a pagar.');
                 redirigir('inversion.php?id=' . $id . '#liquidaciones');
             } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
                 $errores[] = mensaje_bd($e);
             }
         }
@@ -204,12 +264,21 @@ if (es_post()) {
             if (q1("SELECT 1 AS x FROM inversiones_liquidaciones WHERE id_inversion = ? AND estado <> 'ANULADA'", [$id])) {
                 throw new RuntimeException('El aporte tiene una liquidación: anulala primero.');
             }
-            $st = db()->prepare("UPDATE inversiones SET estado = 'ANULADA', anulado_el = NOW(), motivo_anulacion = ? WHERE id_inversion = ? AND estado = 'VIGENTE'");
+            $pdo = db();
+            $pdo->beginTransaction();
+            $st = $pdo->prepare("UPDATE inversiones SET estado = 'ANULADA', anulado_el = NOW(), motivo_anulacion = ? WHERE id_inversion = ? AND estado = 'VIGENTE'");
             $st->execute([$mot, $id]);
+            if ($st->rowCount() && $conFondos) {
+                fondos_call('CALL sp_fondos_anular(?, ?, ?, ?)', ['APORTE', $id, mb_substr($mot, 0, 200), usuario_id()]);   // el capital sale del saldo
+            }
+            $pdo->commit();
             flash('ok', 'Aporte anulado.');
             redirigir('inversion.php?id=' . $id);
         } catch (Throwable $e) {
-            $errores[] = $e instanceof RuntimeException ? $e->getMessage() : mensaje_bd($e);
+            if (db()->inTransaction()) {
+                db()->rollBack();
+            }
+            $errores[] = $e instanceof RuntimeException && !$e instanceof PDOException ? $e->getMessage() : mensaje_bd($e);
         }
     }
 }
@@ -410,6 +479,13 @@ if ($nueva):
           <input id="pct" name="pct" value="<?= h($f['pct']) ?>" inputmode="decimal" class="derecha"></div>
         <div class="campo solo-pa" style="--span:9"><span class="campo-label">&nbsp;</span>
           <span class="campo-ayuda">del interés (sin IVA ni punitorios) que se cobre de los préstamos fondeados, en proporción a lo fondeado</span></div>
+        <?php if ($cuentasInv): ?>
+        <?= campo_cuenta_fondos('cuenta', 'Ingresa en', $cuentasInv, $f['cuenta'], 5, 'la cuenta donde entra el capital (de la moneda del aporte)') ?>
+        <div class="campo" style="--span:3"><label for="medio_ingreso">Cómo ingresa</label>
+          <select id="medio_ingreso" name="medio_ingreso"><?= opciones(MEDIOS_PAGO_INV, $f['medio_ingreso']) ?></select></div>
+        <div class="campo" style="--span:4"><label for="ref_ingreso">Referencia</label>
+          <input id="ref_ingreso" name="ref_ingreso" value="<?= h($f['ref_ingreso']) ?>" maxlength="100" placeholder="N° de transferencia, de cheque…"></div>
+        <?php endif; ?>
         <div class="campo" style="--span:12"><label for="observaciones">Observaciones</label>
           <input id="observaciones" name="observaciones" value="<?= h($f['observaciones']) ?>" maxlength="255"></div>
       </div>
@@ -426,6 +502,20 @@ if ($nueva):
   </div>
 </form>
 <template id="tpl-asig"><?= $renglonAsig(['prestamo' => 0, 'monto' => '']) ?></template>
+<?php if ($cuentasInv): ?>
+<script>
+(function () {
+  // La cuenta donde ingresa el capital es de la moneda del aporte: viene la predeterminada de esa moneda.
+  var mon = document.getElementById('moneda'), cta = document.getElementById('cf-cuenta'), predet = <?= json_encode((object) $predet) ?>;
+  function filtrar(cambio) {
+    Array.prototype.forEach.call(cta.options, function (op) { if (op.value) op.disabled = op.getAttribute('data-moneda') !== mon.value; });
+    if (cambio || (cta.value && cta.options[cta.selectedIndex].disabled)) cta.value = predet[mon.value] ? String(predet[mon.value]) : '';
+  }
+  mon.addEventListener('change', function () { filtrar(true); });
+  filtrar(false);
+})();
+</script>
+<?php endif; ?>
 <script>
 (function () {
   var form = document.getElementById('frm-inv');
@@ -515,7 +605,8 @@ $diasFalta = (int) floor((strtotime($i['fecha_vencimiento']) - strtotime($hoy)) 
       <dt>Modalidad</dt><dd><?= h(MODALIDADES[$i['modalidad']]) ?> · <?= h(MONEDAS[$mon]) ?> · <?= h(condicion_inversion($i)) ?></dd>
       <dt>Estado</dt><dd><?= estado_inversion($i['estado']) ?></dd>
       <?php if ($mon !== 'ARS'): ?><dt>Cotización</dt><dd><?= h(ucfirst(cot_txt($mon, $cotHoy, $cotHoyFecha))) ?> <a href="cotizaciones.php?moneda=<?= h($mon) ?>">ver</a></dd><?php endif; ?>
-      <dt>Para pagarle</dt><dd><?= $i['cbu'] ? '<span class="mono">' . h($i['cbu']) . '</span>' : '<span class="td-muted">sin CBU</span>' ?><?= $i['alias_cbu'] ? ' · ' . h($i['alias_cbu']) : '' ?></dd>
+      <dt>Para pagarle</dt><dd><?= datos_bancarios_html($i['cbu'], $i['alias_cbu']) ?: '<span class="td-muted">sin CBU ni alias: cargalos en la <a href="inversor.php?id=' . (int) $i['id_inversor'] . '">ficha del inversor</a></span>' ?></dd>
+      <?php if (!empty($i['id_cuenta_fondos']) && isset($nombresCuenta[$i['id_cuenta_fondos']])): ?><dt>Ingresó en</dt><dd><a href="movimientos_fondos.php?cuenta=<?= (int) $i['id_cuenta_fondos'] ?>"><?= h($nombresCuenta[$i['id_cuenta_fondos']]) ?></a><?= $i['medio_ingreso'] ? ' · ' . h(strtolower(MEDIOS_PAGO_INV[$i['medio_ingreso']] ?? $i['medio_ingreso'])) : '' ?><?= $i['referencia_ingreso'] ? ' · ' . h($i['referencia_ingreso']) : '' ?></dd><?php endif; ?>
       <?php if ($i['nro_origen']): ?><dt>Renovación de</dt><dd><a href="inversion.php?id=<?= (int) $i['id_inversion_origen'] ?>"><?= h($i['nro_origen']) ?></a></dd><?php endif; ?>
       <?php if ($i['observaciones']): ?><dt>Observaciones</dt><dd><?= h($i['observaciones']) ?></dd><?php endif; ?>
       <dt>Cargado</dt><dd><?= h(date('d/m/Y H:i', strtotime($i['creado_el']))) ?></dd>
@@ -585,21 +676,28 @@ $diasFalta = (int) floor((strtotime($i['fecha_vencimiento']) - strtotime($hoy)) 
 <?php if ($i['modalidad'] === 'PARTICIPACION'): ?>
 <div class="card">
   <?= card_head('Préstamos fondeados', $i['estado'] === 'VIGENTE' ? 'interés cobrado desde el inicio hasta hoy' : '') ?>
+  <?= barra_local('inversion.php?id=' . $id, 'Préstamo o tomador…') ?>
   <div class="data-table-wrap">
-    <table class="data-table" data-sin-orden>
-      <thead><tr><th data-no-sort>Préstamo</th><th data-no-sort>Tomador</th><th class="th-right" data-no-sort>Fondeado</th>
-        <th class="th-right" data-no-sort>Capital del préstamo</th><th class="th-right" data-no-sort>Proporción</th>
-        <th class="th-right" data-no-sort>Interés cobrado</th><th class="th-right" data-no-sort>Para el inversor</th><th data-no-sort>Estado</th></tr></thead>
+    <table class="data-table" data-local data-paginada data-unidad="préstamo|préstamos">
+      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Préstamo</th><th>Tomador</th><th class="th-right">Fondeado</th>
+        <th class="th-right">Capital del préstamo</th><th class="th-right">Proporción</th>
+        <th class="th-right">Interés cobrado</th><th class="th-right">Para el inversor</th><th>Estado</th></tr></thead>
       <tbody>
-      <?php foreach (($preview ? $previewDet : $det) as $d): ?>
-        <tr><td class="mono"><a href="prestamo.php?id=<?= (int) $d['id_prestamo'] ?>"><?= h($d['nro_prestamo']) ?></a></td><td><?= h($d['cliente']) ?></td>
-          <td class="td-right"><?= money($d['monto_asignado']) ?></td><td class="td-right"><?= money($d['capital_prestamo']) ?></td>
-          <td class="td-right"><?= pct($d['proporcion']) ?></td><td class="td-right"><?= money($d['interes_cobrado']) ?></td>
-          <td class="td-right td-fuerte"><?= money($d['interes_inversor']) ?></td><td><?= estado_prestamo($d['estado_prestamo']) ?></td></tr>
+      <?php $fondeados = $preview ? $previewDet : $det; ?>
+      <?php if (!$fondeados): ?><tr><td colspan="9" class="no-data">No fondea ningún préstamo.</td></tr><?php endif; ?>
+      <?php foreach ($fondeados as $d): ?>
+        <tr><td><div class="acciones"><?= btn_accion('ver', 'prestamo.php?id=' . (int) $d['id_prestamo'], 'Ver el préstamo') ?></div></td>
+          <td class="mono"><a href="prestamo.php?id=<?= (int) $d['id_prestamo'] ?>"><?= h($d['nro_prestamo']) ?></a></td><td><?= h($d['cliente']) ?></td>
+          <td class="td-right" data-orden="<?= (float) $d['monto_asignado'] ?>"><?= money($d['monto_asignado']) ?></td>
+          <td class="td-right" data-orden="<?= (float) $d['capital_prestamo'] ?>"><?= money($d['capital_prestamo']) ?></td>
+          <td class="td-right" data-orden="<?= (float) $d['proporcion'] ?>"><?= pct($d['proporcion']) ?></td>
+          <td class="td-right" data-orden="<?= (float) $d['interes_cobrado'] ?>"><?= money($d['interes_cobrado']) ?></td>
+          <td class="td-right td-fuerte" data-orden="<?= (float) $d['interes_inversor'] ?>"><?= money($d['interes_inversor']) ?></td><td><?= estado_prestamo($d['estado_prestamo']) ?></td></tr>
       <?php endforeach; ?>
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 <?php endif; ?>
 
@@ -624,7 +722,7 @@ $diasFalta = (int) floor((strtotime($i['fecha_vencimiento']) - strtotime($hoy)) 
           <td class="td-right td-fuerte"><?= dinero($l['a_pagar'], $mon) ?><?=
             $mon !== 'ARS' ? '<span class="segunda-linea">' . h(equiv_pesos($l['a_pagar'], $mon, $l['cotizacion'])) . '</span>' : '' ?></td>
           <td><?= estado_liq_inv($l['estado']) ?>
-            <?php if ($l['estado'] === 'PAGADA' && $l['medio'] !== 'RENOVACION'): ?><span class="segunda-linea"><?= h(fecha($l['pagado_el'])) ?> · <?= h(MEDIOS_PAGO_INV[$l['medio']] ?? $l['medio']) ?><?= $l['referencia'] ? ' · ' . h($l['referencia']) : '' ?></span><?php endif; ?></td>
+            <?php if ($l['estado'] === 'PAGADA' && $l['medio'] !== 'RENOVACION'): ?><span class="segunda-linea"><?= h(fecha($l['pagado_el'])) ?> · <?= h(MEDIOS_PAGO_INV[$l['medio']] ?? $l['medio']) ?><?= $l['referencia'] ? ' · ' . h($l['referencia']) : '' ?><?= !empty($l['id_cuenta_fondos']) && isset($nombresCuenta[$l['id_cuenta_fondos']]) ? ' · de ' . h($nombresCuenta[$l['id_cuenta_fondos']]) : '' ?></span><?php endif; ?></td>
         </tr>
         <?php if ($l['estado'] === 'A_PAGAR'): ?>
         <tr class="fila-accion"><td colspan="8">
@@ -632,6 +730,8 @@ $diasFalta = (int) floor((strtotime($i['fecha_vencimiento']) - strtotime($hoy)) 
             <?= csrf_campo() ?><input type="hidden" name="accion" value="pagar"><input type="hidden" name="id_liquidacion" value="<?= (int) $l['id_liquidacion'] ?>">
             <span class="form-fila-titulo">Registrar el pago:</span>
             <input type="date" name="fecha_pago" value="<?= $hoy ?>" max="<?= $hoy ?>" class="celda-input" style="width:150px">
+            <?php if ($cuentasInv): ?><?= cuenta_select('cuenta', array_filter($cuentasInv, function ($c) use ($mon) { return $c['moneda'] === $mon; }),
+                                                      $predet[$mon] ?? '', 'Sale de…', ['class' => 'celda-input', 'style' => 'width:220px', 'required' => true, 'title' => 'Cuenta de fondos de la que sale el pago']) ?><?php endif; ?>
             <select name="medio" class="celda-input" style="width:150px"><?= opciones(MEDIOS_PAGO_INV, 'TRANSFERENCIA') ?></select>
             <input name="referencia" class="celda-input" placeholder="N° de transferencia…" maxlength="100" style="width:220px">
             <?= boton('Pagado', 'ok', null, 'guardar', true, true) ?>

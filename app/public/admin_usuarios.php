@@ -208,16 +208,6 @@ $lista = q("SELECT u.id_usuario, u.nombre, u.email, u.usuario, u.activo, u.ultim
 $usos = usos_usuarios(array_column($lista, 'id_usuario'));
 $roles = q('SELECT id_rol, nombre, descripcion, activo FROM roles ORDER BY prioridad DESC, nombre');
 
-/** Botón de una acción de la grilla que se manda por POST (con confirmación opcional). */
-function accion_post(int $id, string $accion, string $icono, string $titulo, string $confirmar = '', string $clase = ''): string
-{
-    return '<form method="post" action="admin_usuarios.php" class="form-en-linea"'
-         . ($confirmar !== '' ? ' data-confirmar="' . h($confirmar) . '" data-confirmar-titulo="' . h($titulo)
-             . '" data-confirmar-boton="' . h($titulo) . '" data-peligro' : '') . '>'
-         . csrf_campo() . '<input type="hidden" name="id" value="' . $id . '"><input type="hidden" name="accion" value="' . h($accion) . '">'
-         . '<button class="btn-accion ' . h($clase) . '" title="' . h($titulo) . '" aria-label="' . h($titulo) . '">' . icono($icono) . '</button></form>';
-}
-
 layout_inicio('Usuarios');
 titulo('Usuarios', 'Quiénes entran al sistema y con qué roles. Lo que ve cada uno sale de sus roles y de sus permisos sueltos.',
        $reg ? '' : boton('Nuevo usuario', 'primary', 'admin_usuarios.php?nuevo=1', 'agregar'));
@@ -227,7 +217,7 @@ if ($reg):
     $r = $reg;
     $esYo = $r['id_usuario'] && (int) $r['id_usuario'] === $yo;
     $acciones = ($r['id_usuario'] ? boton('Permisos sueltos', 'secondary', 'admin_permisos.php?usuario=' . (int) $r['id_usuario'], 'llave', false, true) : '')
-              . boton('Cancelar', 'secondary', 'admin_usuarios.php', null, false, true);
+              . boton('Volver', 'secondary', 'admin_usuarios.php', 'volver', false, true);
 ?>
 <form method="post" action="admin_usuarios.php" autocomplete="off">
   <?= csrf_campo() ?>
@@ -287,17 +277,23 @@ if ($reg):
 <?php endif; ?>
 
 <div class="card">
-  <?= card_head('Usuarios', num(count($lista)) . ' en la lista') ?>
+  <?= card_head('Usuarios') ?>
   <form method="get" action="admin_usuarios.php" class="filter-bar">
-    <select name="estado" class="filtro" onchange="this.form.submit()">
-      <?= opciones(['1' => 'Activos', '0' => 'Dados de baja', 'todos' => 'Todos'], $fEstado) ?>
-    </select>
-    <select name="rol" class="filtro <?= $fRol ? 'activo' : '' ?>" onchange="this.form.submit()">
-      <?= opciones(array_column($roles, 'nombre', 'id_rol'), $fRol ?: '', 'Todos los roles') ?>
-    </select>
+    <label class="filtro-campo filtro-buscar"><span class="filtro-lbl">Buscar</span>
+      <input type="search" class="filter-input" placeholder="Nombre, correo o usuario…"></label>
+    <label class="filtro-campo"><span class="filtro-lbl">Estado</span>
+      <select name="estado" class="filtro <?= $fEstado !== '1' ? 'activo' : '' ?>" onchange="this.form.submit()">
+        <?= opciones(['1' => 'Activos', '0' => 'Dados de baja', 'todos' => 'Todos'], $fEstado) ?>
+      </select></label>
+    <label class="filtro-campo"><span class="filtro-lbl">Rol</span>
+      <select name="rol" class="filtro <?= $fRol ? 'activo' : '' ?>" onchange="this.form.submit()">
+        <?= opciones(array_column($roles, 'nombre', 'id_rol'), $fRol ?: '', 'Todos los roles') ?>
+      </select></label>
+    <?= filtro_botones('admin_usuarios.php', $fEstado !== '1' || $fRol) ?>
+    <?= filtro_fin_local(null) ?>
   </form>
   <div class="data-table-wrap">
-    <table class="data-table">
+    <table class="data-table" data-local data-paginada data-unidad="usuario|usuarios">
       <thead><tr>
         <th class="col-acciones" data-no-sort>Acciones</th><th>Nombre</th><th>Correo</th><th>Usuario</th><th>Roles</th>
         <th class="th-right">Permisos sueltos</th><th>Último ingreso</th><th>Estado</th>
@@ -307,12 +303,12 @@ if ($reg):
         <tr class="<?= (int) $u['activo'] ? '' : 'fila-baja' ?>">
           <td><div class="acciones">
             <?= btn_accion('editar', 'admin_usuarios.php?edit=' . $id, 'Editar') ?>
-            <?= (int) $u['bloqueado'] ? accion_post($id, 'desbloquear', 'llave', 'Desbloquear') : '' ?>
+            <?= (int) $u['bloqueado'] ? accion_post('admin_usuarios.php', ['id' => $id, 'accion' => 'desbloquear'], 'llave', 'Desbloquear') : '' ?>
             <?php if ($id !== $yo): ?>
               <?= (int) $u['activo']
-                    ? accion_post($id, 'baja', 'cerrar', 'Dar de baja', '«' . $u['nombre'] . '» no va a poder entrar. Lo que hizo queda a su nombre.', 'borrar')
-                    : accion_post($id, 'reactivar', 'ok', 'Reactivar') ?>
-              <?= !$usos[$id] ? accion_post($id, 'borrar', 'borrar', 'Eliminar', 'Se elimina «' . $u['nombre'] . '» (' . $u['email'] . '). No figura en ningún registro.', 'borrar') : '' ?>
+                    ? accion_post('admin_usuarios.php', ['id' => $id, 'accion' => 'baja'], 'cerrar', 'Dar de baja', '«' . $u['nombre'] . '» no va a poder entrar. Lo que hizo queda a su nombre.', 'borrar')
+                    : accion_post('admin_usuarios.php', ['id' => $id, 'accion' => 'reactivar'], 'ok', 'Reactivar') ?>
+              <?= !$usos[$id] ? accion_post('admin_usuarios.php', ['id' => $id, 'accion' => 'borrar'], 'borrar', 'Eliminar', 'Se elimina «' . $u['nombre'] . '» (' . $u['email'] . '). No figura en ningún registro.', 'borrar') : '' ?>
             <?php endif; ?>
           </div></td>
           <td class="td-fuerte"><?= h($u['nombre']) ?><?= $id === $yo ? ' <span class="chip">vos</span>' : '' ?></td>
@@ -330,6 +326,7 @@ if ($reg):
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 <?php
 layout_fin();

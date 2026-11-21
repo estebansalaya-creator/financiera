@@ -62,14 +62,11 @@ mensajes($errores);
       <input type="search" name="q" value="<?= h($fQ) ?>" class="filter-input <?= $fQ !== '' ? 'activo' : '' ?>" placeholder="CUIT, nombre o email…"></label>
     <label class="filtro-campo"><span class="filtro-lbl">Estado</span>
       <select name="estado" class="filtro <?= $fEstado !== '' ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(['ACTIVO' => 'Activos', 'INACTIVO' => 'Inactivos'], $fEstado, 'Todos') ?></select></label>
-    <button type="submit" class="btn btn-primary btn-sm"><?= icono('filtro') ?>Filtrar</button>
-    <span class="filter-count" style="margin-left:auto"><?= count($filas) ?> inversores</span>
+    <?= filtro_botones('inversores.php', $fQ !== '' || $fEstado !== '') ?>
+    <?= filtro_fin_local() ?>
   </form>
-</div>
-
-<div class="card">
   <div class="data-table-wrap">
-    <table class="data-table">
+    <table class="data-table" data-local data-paginada data-unidad="inversor|inversores">
       <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Inversor</th><th>CUIT / CUIL</th><th>Contacto</th>
         <th class="th-right">Aportes vigentes</th><th class="th-right">Capital $</th><th class="th-right">Capital US$</th>
         <th>Próximo vencimiento</th><th>Estado</th></tr></thead>
@@ -92,6 +89,7 @@ mensajes($errores);
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 
 <?php layout_fin(); ?>

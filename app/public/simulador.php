@@ -18,14 +18,14 @@ require __DIR__ . '/../inc/layout.php';
 $errores  = [];
 $res      = null;
 $cuadro   = [];
-$producto = null;
+$tipo = null;
 
-$fProd   = (int) get_str('producto');
+$fTipo   = (int) get_str('tipo');
 $fMonto  = get_str('monto');
 $fPlazo  = get_str('plazo');
 $fFecha  = get_str('fecha') ?: date('Y-m-d');
 $fPrimer = get_str('primer_vto');
-$simular = get_str('producto') !== '';
+$simular = get_str('tipo') !== '';
 
 /** TIR mensual de: +neto en t0 y −cuota_i en cada mes (bisección, sin depender de una semilla). */
 function tir_mensual(float $neto, array $cuotas): ?float
@@ -60,16 +60,16 @@ function tir_mensual(float $neto, array $cuotas): ?float
 }
 
 try {
-    $productos = q(
-        "SELECT p.*, EXISTS(SELECT 1 FROM tasas_vigencia t WHERE t.id_producto = p.id_producto
+    $tipos = q(
+        "SELECT p.*, EXISTS(SELECT 1 FROM tasas_vigencia t WHERE t.id_tipo_asociado = p.id_tipo_asociado
                              AND t.vigencia_desde <= CURDATE()) AS con_tasa
-           FROM productos p
+           FROM tipos_asociado p
           WHERE p.activo = 1
           ORDER BY p.nombre"
     );
-    foreach ($productos as $p) {
-        if ((int) $p['id_producto'] === $fProd) {
-            $producto = $p;
+    foreach ($tipos as $p) {
+        if ((int) $p['id_tipo_asociado'] === $fTipo) {
+            $tipo = $p;
         }
     }
 
@@ -78,8 +78,8 @@ try {
         $plazo  = leer_num($fPlazo);
         $fecha  = leer_fecha($fFecha);
         $primer = $fPrimer === '' ? null : leer_fecha($fPrimer);
-        if (!$producto) {
-            $errores[] = 'Elegí un producto.';
+        if (!$tipo) {
+            $errores[] = 'Elegí el tipo de asociado.';
         }
         if ($monto === null || $monto <= 0) {
             $errores[] = 'Escribí el monto a prestar.';
@@ -96,7 +96,7 @@ try {
         if (!$errores) {
             try {
                 $st = db()->prepare('CALL sp_simular_prestamo(?, ?, ?, ?, ?)');
-                $st->execute([$fProd, round($monto, 2), (int) $plazo, $fecha, $primer]);
+                $st->execute([$fTipo, round($monto, 2), (int) $plazo, $fecha, $primer]);
                 $res = $st->fetch();
                 $st->nextRowset();
                 $cuadro = $st->fetchAll();
@@ -111,7 +111,7 @@ try {
     }
 } catch (Throwable $e) {
     $errores[] = error_amigable($e);
-    $productos = [];
+    $tipos = [];
 }
 
 $cft = null;
@@ -127,9 +127,9 @@ if ($res && $cuadro) {
 // ---------------------------------------------------------------------
 $exp = get_str('export');
 if ($res && in_array($exp, ['pdf', 'xlsx'], true)) {
-    $nombreArchivo = 'simulacion_' . strtolower($producto['codigo']) . '_' . (int) $res['plazo'] . 'c_' . date('Ymd');
+    $nombreArchivo = 'simulacion_' . strtolower($tipo['codigo']) . '_' . (int) $res['plazo'] . 'c_' . date('Ymd');
     $lineas = [
-        ['Producto', $producto['nombre']],
+        ['Tipo de asociado', $tipo['nombre']],
         ['Monto solicitado', money($res['capital'])],
         ['Plazo', (int) $res['plazo'] . ' cuotas mensuales'],
         ['Valor de la cuota (1ra)', money($res['valor_cuota'])],
@@ -149,7 +149,7 @@ if ($res && in_array($exp, ['pdf', 'xlsx'], true)) {
     if ($exp === 'pdf') {
         require_once __DIR__ . '/../inc/pdf.php';
         $rep = new PdfReporte('Simulación de préstamo',
-                              $producto['nombre'] . ' · liquidación ' . fecha($fFecha) . ' · ' . (int) $res['plazo'] . ' cuotas', false);
+                              $tipo['nombre'] . ' · liquidación ' . fecha($fFecha) . ' · ' . (int) $res['plazo'] . ' cuotas', false);
         $rep->indicadores([
             ['Monto solicitado', money($res['capital'])],
             ['Primera cuota', money($res['valor_cuota'])],
@@ -160,7 +160,7 @@ if ($res && in_array($exp, ['pdf', 'xlsx'], true)) {
             ['TNA / TEA', pct($res['tna']) . ' / ' . pct($res['tea'])],
             ['CFT TEA c/IVA', $cft ? pct($cft['tea']) : '—'],
         ]);
-        $rep->seccion('Cuadro de cuotas', 'sistema francés · IVA ' . pct($producto['alicuota_iva'], 0) . ' sobre intereses');
+        $rep->seccion('Cuadro de cuotas', 'sistema francés · IVA ' . pct($tipo['alicuota_iva'], 0) . ' sobre intereses');
         $rep->tabla(
             [['N°', 0.6, 'R'], ['Vencimiento', 1.4, 'L'], ['Capital', 1.6, 'R'], ['Interés', 1.5, 'R'],
              ['IVA', 1.3, 'R'], ['Cuota', 1.6, 'R'], ['Saldo de capital', 1.8, 'R']],
@@ -172,7 +172,7 @@ if ($res && in_array($exp, ['pdf', 'xlsx'], true)) {
              money($res['total_a_pagar']), '']
         );
         $rep->nota('Simulación sin valor contractual: las condiciones finales dependen de la aprobación crediticia y de la tasa vigente al liquidar.');
-        $rep->nota('Gastos de otorgamiento (' . pct($producto['gasto_otorg_pct']) . ' del capital) descontados del desembolso. '
+        $rep->nota('Gastos de otorgamiento (' . pct($tipo['gasto_otorg_pct']) . ' del capital) descontados del desembolso. '
                    . 'CFT aproximado en períodos mensuales iguales.');
         $rep->enviar($nombreArchivo . '.pdf');
         exit;
@@ -180,7 +180,7 @@ if ($res && in_array($exp, ['pdf', 'xlsx'], true)) {
 
     require_once __DIR__ . '/../inc/xlsx.php';
     $libro = new XlsxLibro();
-    $libro->hoja('Cuadro de cuotas')->titulo('Simulación de préstamo · ' . $producto['nombre'],
+    $libro->hoja('Cuadro de cuotas')->titulo('Simulación de préstamo · ' . $tipo['nombre'],
         money($res['capital']) . ' en ' . (int) $res['plazo'] . ' cuotas · TNA ' . pct($res['tna']) . ' · liquidación ' . fecha($fFecha))
         ->tabla(
             [['N°', 'entero', 6], ['Vencimiento', 'fecha', 13], ['Capital', 'moneda', 16], ['Interés', 'moneda', 15],
@@ -206,12 +206,12 @@ if ($res) {
     $acciones = boton('Exportar a Excel', 'excel', url_con(['export' => 'xlsx']), 'planilla')
               . boton('Generar PDF', 'pdf', url_con(['export' => 'pdf']), 'pdf', false, false, ['target' => '_blank', 'rel' => 'noopener']);
 }
-titulo('Simulador de préstamos', 'Cuota, total a pagar y cuadro de cuotas con la tasa vigente del producto', $acciones);
+titulo('Simulador de préstamos', 'Cuota, total a pagar y cuadro de cuotas con la tasa vigente del tipo de asociado', $acciones);
 mensajes($errores);
 
-$sinTasa = array_filter($productos, function ($p) { return !$p['con_tasa']; });
-if ($productos && count($sinTasa) === count($productos)) {
-    alerta('Ningún producto activo tiene tasa vigente: cargalas en Productos y tasas para poder simular.', 'warning');
+$sinTasa = array_filter($tipos, function ($p) { return !$p['con_tasa']; });
+if ($tipos && count($sinTasa) === count($tipos)) {
+    alerta('Ningún tipo de asociado activo tiene tasa vigente: cargalas en Tipos de asociado y tasas para poder simular.', 'warning');
 }
 ?>
 
@@ -220,18 +220,18 @@ if ($productos && count($sinTasa) === count($productos)) {
     <div class="bloque">
       <div class="campos">
         <div class="campo" style="--span:4">
-          <label for="producto">Producto <span class="req">*</span></label>
-          <select id="producto" name="producto" required>
-            <option value="">Elegí un producto…</option>
-            <?php foreach ($productos as $p): ?>
-              <option value="<?= (int) $p['id_producto'] ?>" <?= (int) $p['id_producto'] === $fProd ? 'selected' : '' ?>
+          <label for="tipo">Tipo de asociado <span class="req">*</span></label>
+          <select id="tipo" name="tipo" required>
+            <option value="">Elegí…</option>
+            <?php foreach ($tipos as $p): ?>
+              <option value="<?= (int) $p['id_tipo_asociado'] ?>" <?= (int) $p['id_tipo_asociado'] === $fTipo ? 'selected' : '' ?>
                       data-plazo="<?= h($p['plazo_min'] . ' a ' . $p['plazo_max'] . ' cuotas') ?>"
                       data-monto="<?= h(money($p['monto_min']) . ' a ' . money($p['monto_max'])) ?>">
                 <?= h($p['nombre']) ?><?= $p['con_tasa'] ? '' : ' (sin tasa vigente)' ?>
               </option>
             <?php endforeach; ?>
           </select>
-          <span class="campo-ayuda" id="ayuda-producto"></span>
+          <span class="campo-ayuda" id="ayuda-tipo"></span>
         </div>
         <div class="campo" style="--span:2">
           <label for="monto">Monto <span class="req">*</span></label>
@@ -275,75 +275,73 @@ if ($productos && count($sinTasa) === count($productos)) {
       <div><div class="kpi-lbl">CFT TEA con IVA</div><div class="kpi-val monto"><?= $cft ? pct($cft['tea']) : '—' ?></div></div></div>
   </div>
 
-  <div class="columnas-2-1">
-    <div class="card">
-      <?= card_head('Cuadro de cuotas', 'sistema francés · ' . (int) $res['plazo'] . ' cuotas mensuales') ?>
-      <div class="data-table-wrap">
-        <table class="data-table" data-sin-orden>
-          <thead>
-            <tr>
-              <th class="th-right" data-no-sort>N°</th>
-              <th data-no-sort>Vencimiento</th>
-              <th class="th-right" data-no-sort>Capital</th>
-              <th class="th-right" data-no-sort>Interés</th>
-              <th class="th-right" data-no-sort>IVA</th>
-              <th class="th-right" data-no-sort>Cuota</th>
-              <th class="th-right" data-no-sort>Saldo de capital</th>
-            </tr>
-          </thead>
-          <tbody>
-          <?php foreach ($cuadro as $c): ?>
-            <tr>
-              <td class="td-right"><?= (int) $c['nro_cuota'] ?></td>
-              <td><?= h(fecha($c['vencimiento'])) ?></td>
-              <td class="td-right"><?= money($c['capital']) ?></td>
-              <td class="td-right"><?= money($c['interes']) ?></td>
-              <td class="td-right"><?= money($c['iva_interes']) ?></td>
-              <td class="td-right td-fuerte"><?= money($c['importe']) ?></td>
-              <td class="td-right td-muted"><?= money($c['saldo_capital']) ?></td>
-            </tr>
-          <?php endforeach; ?>
-          </tbody>
-          <tfoot>
-            <tr class="total-row">
-              <td></td>
-              <td>Total</td>
-              <td class="td-right"><?= money($res['capital']) ?></td>
-              <td class="td-right"><?= money($res['total_intereses']) ?></td>
-              <td class="td-right"><?= money($res['total_iva']) ?></td>
-              <td class="td-right"><?= money($res['total_a_pagar']) ?></td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+  <div class="card">
+    <?= card_head('Resumen') ?>
+    <div class="datos">
+      <div><div class="dato-lbl">Monto solicitado</div><div class="dato-val"><?= money($res['capital']) ?></div></div>
+      <div><div class="dato-lbl">Gastos de otorgamiento</div><div class="dato-val"><?= money($res['gastos_otorg']) ?></div></div>
+      <div><div class="dato-lbl">Neto a recibir</div><div class="dato-val"><?= money($res['neto_desembolso']) ?></div></div>
+      <div><div class="dato-lbl">Cuotas</div><div class="dato-val"><?= (int) $res['plazo'] ?> mensuales</div></div>
+      <div><div class="dato-lbl">Total de intereses</div><div class="dato-val"><?= money($res['total_intereses']) ?></div></div>
+      <div><div class="dato-lbl">IVA s/ intereses</div><div class="dato-val"><?= money($res['total_iva']) ?></div></div>
+      <div><div class="dato-lbl">TNA</div><div class="dato-val"><?= pct($res['tna']) ?></div></div>
+      <div><div class="dato-lbl">TEM</div><div class="dato-val"><?= pct($res['tem'], 3) ?></div></div>
+      <div><div class="dato-lbl">TEA</div><div class="dato-val"><?= pct($res['tea']) ?></div></div>
+      <div><div class="dato-lbl">CFT TEA c/IVA</div><div class="dato-val"><?= $cft ? pct($cft['tea']) : '—' ?></div></div>
     </div>
-
-    <div class="card">
-      <?= card_head('Resumen') ?>
-      <div class="datos" style="grid-template-columns: 1fr 1fr">
-        <div><div class="dato-lbl">Monto solicitado</div><div class="dato-val"><?= money($res['capital']) ?></div></div>
-        <div><div class="dato-lbl">Gastos de otorgamiento</div><div class="dato-val"><?= money($res['gastos_otorg']) ?></div></div>
-        <div><div class="dato-lbl">Neto a recibir</div><div class="dato-val"><?= money($res['neto_desembolso']) ?></div></div>
-        <div><div class="dato-lbl">Cuotas</div><div class="dato-val"><?= (int) $res['plazo'] ?> mensuales</div></div>
-        <div><div class="dato-lbl">Total de intereses</div><div class="dato-val"><?= money($res['total_intereses']) ?></div></div>
-        <div><div class="dato-lbl">IVA s/ intereses</div><div class="dato-val"><?= money($res['total_iva']) ?></div></div>
-        <div><div class="dato-lbl">TNA</div><div class="dato-val"><?= pct($res['tna']) ?></div></div>
-        <div><div class="dato-lbl">TEM</div><div class="dato-val"><?= pct($res['tem'], 3) ?></div></div>
-        <div><div class="dato-lbl">TEA</div><div class="dato-val"><?= pct($res['tea']) ?></div></div>
-        <div><div class="dato-lbl">CFT TEA c/IVA</div><div class="dato-val"><?= $cft ? pct($cft['tea']) : '—' ?></div></div>
-      </div>
-      <div class="bloque" style="border-top:1px solid var(--border)">
-        <p class="chico muted">Cada cuota incluye el IVA sobre sus intereses: como el interés baja mes a mes, la cuota total también baja un poco. Los gastos se descuentan del desembolso.
-          El CFT es aproximado (períodos mensuales iguales). Simulación sin valor contractual.</p>
-      </div>
+    <div class="bloque" style="border-top:1px solid var(--border)">
+      <p class="chico muted">Cada cuota incluye el IVA sobre sus intereses: como el interés baja mes a mes, la cuota total también baja un poco. Los gastos se descuentan del desembolso.
+        El CFT es aproximado (períodos mensuales iguales). Simulación sin valor contractual.</p>
     </div>
   </div>
+  <div class="card">
+    <?= card_head('Cuadro de cuotas', 'sistema francés · ' . (int) $res['plazo'] . ' cuotas mensuales') ?>
+    <div class="data-table-wrap">
+      <table class="data-table" data-sin-orden>
+        <thead>
+          <tr>
+            <th class="th-right" data-no-sort>N°</th>
+            <th data-no-sort>Vencimiento</th>
+            <th class="th-right" data-no-sort>Capital</th>
+            <th class="th-right" data-no-sort>Interés</th>
+            <th class="th-right" data-no-sort>IVA</th>
+            <th class="th-right" data-no-sort>Cuota</th>
+            <th class="th-right" data-no-sort>Saldo de capital</th>
+          </tr>
+        </thead>
+        <tbody>
+        <?php foreach ($cuadro as $c): ?>
+          <tr>
+            <td class="td-right"><?= (int) $c['nro_cuota'] ?></td>
+            <td><?= h(fecha($c['vencimiento'])) ?></td>
+            <td class="td-right"><?= money($c['capital']) ?></td>
+            <td class="td-right"><?= money($c['interes']) ?></td>
+            <td class="td-right"><?= money($c['iva_interes']) ?></td>
+            <td class="td-right td-fuerte"><?= money($c['importe']) ?></td>
+            <td class="td-right td-muted"><?= money($c['saldo_capital']) ?></td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+        <tfoot>
+          <tr class="total-row">
+            <td></td>
+            <td>Total</td>
+            <td class="td-right"><?= money($res['capital']) ?></td>
+            <td class="td-right"><?= money($res['total_intereses']) ?></td>
+            <td class="td-right"><?= money($res['total_iva']) ?></td>
+            <td class="td-right"><?= money($res['total_a_pagar']) ?></td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
 <?php endif; ?>
 
 <script>
 (function () {
-  var sel = document.getElementById('producto');
+  var sel = document.getElementById('tipo');
   function ayuda() {
     var o = sel.options[sel.selectedIndex];
     document.getElementById('ayuda-plazo').textContent = o && o.dataset.plazo ? o.dataset.plazo : '';

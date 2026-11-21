@@ -6,7 +6,9 @@
    - button[data-agregar="id-del-template"][data-destino="id-del-contenedor"]:
      agrega un renglón; .renglon-quitar lo saca.
    - input[data-cuit]: valida el CUIT/CUIL mientras se escribe y lo dice en la
-     .campo-ayuda del mismo campo. */
+     .campo-ayuda del mismo campo.
+   - Un envío por vez: un formulario POST que ya se mandó no se vuelve a mandar
+     mientras espera la respuesta (data-sin-espera lo deja afuera). */
 (function () {
   'use strict';
 
@@ -21,6 +23,43 @@
   var pendiente = null;
 
   function cerrar() { modal.classList.remove('abierto'); pendiente = null; }
+
+  // ── Un envío por vez ─────────────────────────────────────────────────
+  // Con una respuesta lenta (el BCRA tarda) un segundo clic mandaba el
+  // formulario otra vez y la solicitud quedaba cargada dos veces. El que ya
+  // se mandó queda marcado hasta que llega la página siguiente; se libera a
+  // los 60 s (si la respuesta no llega, se puede reintentar) o al volver con
+  // «Atrás». Se marca después del evento: si otro script lo frenó (la
+  // confirmación, una validación propia, el chat) no se marca. Este control
+  // va antes que el de la confirmación: el segundo clic no vuelve a abrirla.
+  var ESPERA_MS = 60000;
+  function liberar(form) {
+    form.removeAttribute('data-enviando');
+    form.classList.remove('enviando');
+    form.querySelectorAll('.enviando').forEach(function (b) { b.classList.remove('enviando'); b.removeAttribute('aria-busy'); });
+  }
+  document.addEventListener('submit', function (e) {
+    if (e.target.hasAttribute && e.target.hasAttribute('data-enviando')) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }, true);
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form.getAttribute || (form.getAttribute('method') || '').toLowerCase() !== 'post'
+        || form.getAttribute('target') || form.hasAttribute('data-sin-espera')) return;
+    var boton = e.submitter || null;
+    setTimeout(function () {
+      if (e.defaultPrevented) return;
+      form.setAttribute('data-enviando', '1');
+      form.classList.add('enviando');
+      if (boton && boton.form === form) { boton.classList.add('enviando'); boton.setAttribute('aria-busy', 'true'); }
+      setTimeout(function () { liberar(form); }, ESPERA_MS);
+    }, 0);
+  });
+  window.addEventListener('pageshow', function () {
+    document.querySelectorAll('form[data-enviando]').forEach(liberar);
+  });
   modal.addEventListener('click', function (e) { if (e.target === modal) cerrar(); });
   modal.querySelector('[data-no]').addEventListener('click', cerrar);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') cerrar(); });
@@ -89,6 +128,58 @@
   document.querySelectorAll('input[data-cuit]').forEach(function (inp) {
     inp.addEventListener('input', function () { revisarCuit(inp); });
     revisarCuit(inp);
+  });
+})();
+
+/* ── CBU / CVU y alias ──────────────────────────────────────────────────
+   input[data-cbu]: mientras se escribe valida los 22 números y los dos
+   dígitos verificadores y dice de qué banco es (data-bancos: código BCRA →
+   nombre) en la .campo-ayuda del campo; vacío, vuelve a la ayuda original
+   (data-base). Es la misma regla que cbu_valido() de inc/ui.php.
+   input[data-alias-cbu]: de 6 a 20 letras sin ñ ni acentos, números, punto o
+   guion; al salir queda en mayúsculas y sin espacios, como se guarda.
+   Los dibuja campos_datos_bancarios(). */
+(function () {
+  function dv(b, p) { var s = 0; for (var i = 0; i < p.length; i++) s += +b[i] * p[i]; return (10 - s % 10) % 10; }
+  function cbuValido(d) {
+    return /^\d{22}$/.test(d) && dv(d, [7, 1, 3, 9, 7, 1, 3]) === +d[7] &&
+      dv(d.substr(8), [3, 9, 7, 1, 3, 9, 7, 1, 3, 9, 7, 1, 3]) === +d[21];
+  }
+  function ayudaDe(inp) { var c = inp.closest('.campo'); return c && c.querySelector('.campo-ayuda'); }
+  function poner(inp, ayuda, txt, clase) {
+    ayuda.textContent = txt;
+    ayuda.className = 'campo-ayuda' + (clase ? ' ' + clase : '');
+    inp.classList.toggle('invalido', clase === 'error');
+  }
+  function revisarCbu(inp) {
+    var ayuda = ayudaDe(inp), d = inp.value.replace(/\D/g, '');
+    if (!ayuda) return;
+    if (!d) { poner(inp, ayuda, ayuda.getAttribute('data-base') || '', ''); return; }
+    if (d.length < 22) { poner(inp, ayuda, 'Faltan ' + (22 - d.length) + ' números', ''); return; }
+    if (d.length > 22) { poner(inp, ayuda, '✗ Sobran ' + (d.length - 22) + ' números', 'error'); return; }
+    if (!cbuValido(d)) { poner(inp, ayuda, '✗ Los dígitos verificadores no coinciden', 'error'); return; }
+    var bancos = {};
+    try { bancos = JSON.parse(inp.getAttribute('data-bancos') || '{}'); } catch (e) { bancos = {}; }
+    var cod = d.substr(0, 3);
+    poner(inp, ayuda, cod === '000' ? '✓ CVU de una billetera virtual' : '✓ ' + (bancos[cod] || 'CBU válido (banco ' + cod + ')'), 'ok');
+  }
+  function revisarAlias(inp, salir) {
+    var ayuda = ayudaDe(inp), a = inp.value.replace(/\s+/g, '').toUpperCase();
+    if (salir && inp.value !== a) inp.value = a;
+    if (!ayuda) return;
+    if (!a) { poner(inp, ayuda, '', ''); return; }
+    if (/[^A-Z0-9.\-]/.test(a)) { poner(inp, ayuda, '✗ Solo letras sin ñ ni acentos, números, punto o guion', 'error'); return; }
+    if (a.length < 6) { poner(inp, ayuda, salir ? '✗ Tiene que tener al menos 6 caracteres' : 'Faltan ' + (6 - a.length) + ' caracteres', salir ? 'error' : ''); return; }
+    poner(inp, ayuda, '', '');
+  }
+  document.querySelectorAll('input[data-cbu]').forEach(function (inp) {
+    inp.addEventListener('input', function () { revisarCbu(inp); });
+    revisarCbu(inp);
+  });
+  document.querySelectorAll('input[data-alias-cbu]').forEach(function (inp) {
+    inp.addEventListener('input', function () { revisarAlias(inp, false); });
+    inp.addEventListener('blur', function () { revisarAlias(inp, true); });
+    if (inp.value) revisarAlias(inp, true);
   });
 })();
 
@@ -382,7 +473,7 @@
   });
 })();
 
-/* Ayuda: F1 abre la ayuda de la pantalla (el botón flotante sabe cuál es).
+/* Ayuda: F1 abre la ayuda de la pantalla (el botón Ayuda de la barra sabe cuál es).
    En un manual, el índice marca la sección que se está leyendo. */
 (function () {
   document.addEventListener('keydown', function (e) {

@@ -18,11 +18,11 @@ $errores = [];
 $pend = $aprob = $ult = [];
 $hoy = ['APROBADA' => 0, 'OBSERVADA' => 0, 'RECHAZADA' => 0];
 try {
-    $sel = "SELECT s.*, c.denominacion, c.cuit, c.tipo AS cliente_tipo, pr.nombre AS producto, v.nombre AS vendedor,
+    $sel = "SELECT s.*, c.denominacion, c.cuit, c.tipo AS cliente_tipo, ta.nombre AS tipo_asociado, v.nombre AS vendedor,
                    uc.nombre AS creado_por_nombre, ur.nombre AS resuelto_por_nombre
               FROM solicitudes s
               JOIN clientes c ON c.id_cliente = s.id_cliente
-              JOIN productos pr ON pr.id_producto = s.id_producto
+              JOIN tipos_asociado ta ON ta.id_tipo_asociado = s.id_tipo_asociado
               LEFT JOIN vendedores v ON v.id_vendedor = s.id_vendedor
               LEFT JOIN usuarios uc ON uc.id_usuario = s.creado_por
               LEFT JOIN usuarios ur ON ur.id_usuario = s.resuelto_por";
@@ -56,13 +56,14 @@ mensajes($errores);
 
 <div class="card">
   <?= card_head('Pendientes de autorización', count($pend) ? 'la más vieja primero' : '') ?>
+  <?= barra_local('autorizaciones.php', 'Número, cliente, CUIT, vendedor o tipo…') ?>
   <div class="data-table-wrap">
-    <table class="data-table" data-sin-orden>
+    <table class="data-table" data-local data-paginada data-unidad="solicitud|solicitudes">
       <thead>
         <tr>
           <th class="col-acciones" data-no-sort>Acciones</th>
-          <th data-no-sort>N°</th><th data-no-sort>Espera</th><th data-no-sort>Cliente</th><th data-no-sort>Producto</th>
-          <th class="th-right" data-no-sort>Monto</th><th class="th-right" data-no-sort>Cuotas</th><th class="th-right" data-no-sort>Cuota</th>
+          <th>N°</th><th>Espera</th><th>Cliente</th><th>Tipo de asociado</th>
+          <th class="th-right">Monto</th><th class="th-right">Cuotas</th><th class="th-right">Cuota</th>
           <th data-no-sort>Controles</th><th data-no-sort>Documentación</th>
         </tr>
       </thead>
@@ -74,10 +75,10 @@ mensajes($errores);
         <tr>
           <td><div class="acciones"><?= boton('Revisar', 'primary', 'solicitud.php?id=' . (int) $s['id_solicitud'], null, false, true) ?></div></td>
           <td class="mono td-fuerte"><a href="solicitud.php?id=<?= (int) $s['id_solicitud'] ?>"><?= h($s['nro_solicitud']) ?></a></td>
-          <td><?= h(sol_espera($s['enviado_el'])) ?><span class="segunda-linea"><?= h((string) $s['creado_por_nombre']) ?></span></td>
+          <td data-orden="<?= h((string) $s['enviado_el']) ?>"><?= h(sol_espera($s['enviado_el'])) ?><span class="segunda-linea"><?= h((string) $s['creado_por_nombre']) ?></span></td>
           <td><?= h($s['denominacion']) ?>
             <span class="segunda-linea mono"><?= h(cuit_fmt($s['cuit'])) ?><?= $s['vendedor'] ? ' · ' . h($s['vendedor']) : '' ?></span></td>
-          <td><?= h($s['producto']) ?></td>
+          <td><?= h($s['tipo_asociado']) ?></td>
           <td class="td-right td-fuerte"><?= money($s['monto']) ?></td>
           <td class="td-right"><?= (int) $s['plazo'] ?></td>
           <td class="td-right"><?= money($s['valor_cuota']) ?></td>
@@ -88,22 +89,24 @@ mensajes($errores);
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 
 <?php if ($aprob): ?>
 <div class="card">
   <?= card_head('Aprobadas sin liquidar', 'el préstamo nace cuando se liquidan') ?>
+  <?= barra_local('autorizaciones.php', 'Número, cliente o CUIT…') ?>
   <div class="data-table-wrap">
-    <table class="data-table" data-sin-orden>
-      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th data-no-sort>N°</th><th data-no-sort>Aprobada</th><th data-no-sort>Cliente</th>
-        <th class="th-right" data-no-sort>Monto</th><th class="th-right" data-no-sort>Cuotas</th><th data-no-sort>Aprobó</th></tr></thead>
+    <table class="data-table" data-local data-paginada data-unidad="solicitud|solicitudes">
+      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>N°</th><th>Aprobada</th><th>Cliente</th>
+        <th class="th-right">Monto</th><th class="th-right">Cuotas</th><th>Aprobó</th></tr></thead>
       <tbody>
       <?php foreach ($aprob as $s): ?>
         <tr>
           <td><div class="acciones"><?= btn_accion('ver', 'solicitud.php?id=' . $s['id_solicitud'], 'Abrir la solicitud') ?>
             <?= $liquida ? btn_accion('agregar', 'prestamo_nuevo.php?solicitud=' . $s['id_solicitud'], 'Liquidar') : '' ?></div></td>
           <td class="mono td-fuerte"><a href="solicitud.php?id=<?= (int) $s['id_solicitud'] ?>"><?= h($s['nro_solicitud']) ?></a></td>
-          <td><?= h(sol_espera((string) $s['resuelto_el'])) ?></td>
+          <td data-orden="<?= h((string) $s['resuelto_el']) ?>"><?= h(sol_espera((string) $s['resuelto_el'])) ?></td>
           <td><?= h($s['denominacion']) ?><span class="segunda-linea mono"><?= h(cuit_fmt($s['cuit'])) ?></span></td>
           <td class="td-right"><?= money($s['monto']) ?></td>
           <td class="td-right"><?= (int) $s['plazo'] ?></td>
@@ -113,31 +116,35 @@ mensajes($errores);
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 <?php endif; ?>
 
 <?php if ($ult): ?>
 <div class="card">
   <?= card_head('Últimas resueltas') ?>
+  <?= barra_local('autorizaciones.php', 'Número, cliente, estado o comentario…') ?>
   <div class="data-table-wrap">
-    <table class="data-table" data-sin-orden>
-      <thead><tr><th data-no-sort>N°</th><th data-no-sort>Resuelta</th><th data-no-sort>Cliente</th><th class="th-right" data-no-sort>Monto</th>
-        <th data-no-sort>Estado</th><th data-no-sort>Quién</th><th data-no-sort>Comentario</th></tr></thead>
+    <table class="data-table" data-local data-paginada data-unidad="solicitud|solicitudes">
+      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>N°</th><th>Resuelta</th><th>Cliente</th><th class="th-right">Monto</th>
+        <th>Estado</th><th>Quién</th><th data-no-sort>Comentario</th></tr></thead>
       <tbody>
       <?php foreach ($ult as $s): ?>
         <tr>
+          <td><div class="acciones"><?= btn_accion('ver', 'solicitud.php?id=' . (int) $s['id_solicitud'], 'Abrir la solicitud') ?></div></td>
           <td class="mono td-fuerte"><a href="solicitud.php?id=<?= (int) $s['id_solicitud'] ?>"><?= h($s['nro_solicitud']) ?></a></td>
           <td class="td-nowrap"><?= h(fecha_hora($s['resuelto_el'])) ?></td>
           <td><?= h($s['denominacion']) ?></td>
           <td class="td-right"><?= money($s['monto']) ?></td>
           <td><?= estado_solicitud($s['estado']) ?></td>
           <td><?= h((string) $s['resuelto_por_nombre']) ?></td>
-          <td style="white-space:normal;max-width:320px"><?= h((string) $s['resolucion']) ?></td>
+          <td class="td-wrap"><?= h((string) $s['resolucion']) ?></td>
         </tr>
       <?php endforeach; ?>
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 <?php endif; ?>
 

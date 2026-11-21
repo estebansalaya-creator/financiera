@@ -197,6 +197,33 @@ function sp_resultados(string $sql, array $params): array
     return $out;
 }
 
+/**
+ * Como sp_resultados, para un procedure que sólo consulta (sp_estado_cuenta):
+ * en su propia transacción READ COMMITTED, así lee lo confirmado sin bloquear.
+ * En REPEATABLE READ, sus INSERT … SELECT a tablas temporarias ponen bloqueos
+ * compartidos sobre pagos e imputaciones y se trababan con un cobro en curso.
+ * Si ya hay una transacción abierta, corre dentro de ella.
+ */
+function sp_consulta(string $sql, array $params): array
+{
+    $pdo = db();
+    if ($pdo->inTransaction()) {
+        return sp_resultados($sql, $params);
+    }
+    $pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+    $pdo->beginTransaction();
+    try {
+        $r = sp_resultados($sql, $params);
+        $pdo->commit();
+        return $r;
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+}
+
 /** Hay algún control de ese nivel. */
 function controles_hay(array $ctl, string $nivel): bool
 {

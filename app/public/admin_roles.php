@@ -158,7 +158,7 @@ if ($rol):
   <input type="hidden" name="accion" value="guardar">
   <input type="hidden" name="id" value="<?= (int) $rol['id_rol'] ?>">
   <div class="card">
-    <?= card_head($rol['id_rol'] ? 'Rol ' . $rol['nombre'] : 'Nuevo rol', '', boton('Cancelar', 'secondary', 'admin_roles.php', null, false, true)) ?>
+    <?= card_head($rol['id_rol'] ? 'Rol ' . $rol['nombre'] : 'Nuevo rol', '', boton('Volver', 'secondary', 'admin_roles.php', 'volver', false, true)) ?>
     <div class="bloque">
       <div class="campos">
         <div class="campo" style="--span:3"><label for="nombre">Nombre <span class="req">*</span></label>
@@ -184,9 +184,10 @@ if ($rol):
 <?php endif; ?>
 
 <div class="card">
-  <?= card_head('Roles', count($lista) . ' roles') ?>
+  <?= card_head('Roles') ?>
+  <?= barra_local('admin_roles.php', 'Rol, descripción o módulo…') ?>
   <div class="data-table-wrap">
-    <table class="data-table">
+    <table class="data-table" data-local data-paginada data-unidad="rol|roles">
       <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Rol</th><th>Descripción</th><th>Módulos</th>
         <th class="th-right">Pantallas</th><th class="th-right">Usuarios activos</th><th class="th-right">Prioridad</th><th>Estado</th></tr></thead>
       <tbody>
@@ -210,9 +211,11 @@ if ($rol):
           <td><?= (int) $r['activo'] ? estado('Activo', 'ok') : estado('Inactivo', 'neutro') ?></td>
         </tr>
       <?php endforeach; ?>
+      <?php if (!$lista): ?><tr><td colspan="8" class="no-data">Todavía no hay roles.</td></tr><?php endif; ?>
       </tbody>
     </table>
   </div>
+  <?= paginacion_local() ?>
 </div>
 <?php
 layout_fin();

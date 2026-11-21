@@ -53,12 +53,13 @@ function marca_logo(int $tam): string
 }
 
 /**
- * El globito flotante de Mensajes (arriba del de Ayuda), con cuántas
+ * El botón Mensajes de la barra de arriba (al lado de Ayuda), con cuántas
  * conversaciones tienen algo sin leer. assets/chat.js lo actualiza cada 20
  * segundos. Sin la opción Mensajes, sin las tablas todavía o en la misma
- * pantalla Mensajes, no se dibuja.
+ * pantalla Mensajes, no se dibuja. Va arriba y no flotando sobre la
+ * pantalla: así no tapa los importes de la última columna ni los botones.
  */
-function chat_boton_flotante(): string
+function chat_boton(): string
 {
     if (!usuario_id() || !puede('chat.php') || pagina_actual() === 'chat.php') {
         return '';
@@ -75,8 +76,8 @@ function chat_boton_flotante(): string
     // Mensajes vuelve a esta pantalla al cerrarlo.
     $aca = basename((string) ($_SERVER['REQUEST_URI'] ?? ''));
     $href = 'chat.php' . ($aca !== '' && url_local($aca) && strpos($aca, 'index.php') !== 0 ? '?volver=' . rawurlencode($aca) : '');
-    return '<a id="btn-mensajes" href="' . h($href) . '" data-chat-contador="' . $n . '" data-chat-ultimo="' . $ultimo . '" title="Mensajes">'
-         . icono('mensaje') . '<span>Mensajes</span>'
+    return '<a id="btn-mensajes" class="header-boton" href="' . h($href) . '" data-chat-contador="' . $n . '" data-chat-ultimo="' . $ultimo . '" title="Mensajes">'
+         . icono('mensaje', 14) . '<span class="hb-texto">Mensajes</span>'
          . '<span class="chat-badge"' . ($n ? '' : ' hidden') . '>' . ($n > 99 ? '99+' : $n) . '</span></a>';
 }
 
@@ -125,6 +126,12 @@ function layout_inicio(string $titulo, string $activo = ''): void
   <a href="index.php" class="header-boton" title="Volver al inicio" data-colapsar-menu><?= icono('casa', 14) ?><span class="hb-texto">Inicio</span></a>
   <?php endif; ?>
   <div class="header-spacer"></div>
+  <?php if ($u): ?>
+  <?= chat_boton() ?>
+  <?php if (pagina_actual() !== 'ayuda.php'): ?>
+  <a id="btn-ayuda" class="header-boton" href="<?= h(url_ayuda()) ?>" title="Ayuda de esta pantalla (F1)" aria-keyshortcuts="F1"><?= icono('info', 14) ?><span class="hb-texto">Ayuda</span></a>
+  <?php endif; ?>
+  <?php endif; ?>
   <button type="button" class="header-boton" data-instalar-app hidden title="Instalar la Financiera como app en este dispositivo"><?= icono('telefono', 14) ?><span class="hb-texto">Instalar app</span></button>
   <span class="header-fecha"><?= h(ucfirst($hoy)) ?></span>
   <?php if ($u): ?>
@@ -160,12 +167,8 @@ function layout_fin(): void
     ?>
 </main>
 </div>
-<?= chat_boton_flotante() ?>
-<?php if (usuario_id() && pagina_actual() !== 'ayuda.php'): ?>
-<a id="btn-ayuda" href="<?= h(url_ayuda()) ?>" title="Ayuda de esta pantalla (F1)" aria-keyshortcuts="F1"><?= icono('info') ?><span>Ayuda</span></a>
-<?php endif; ?>
 <script src="assets/app.js?v=<?= @filemtime(__DIR__ . '/../public/assets/app.js') ?: 0 ?>"></script>
-<script src="assets/tabla.js"></script>
+<script src="assets/tabla.js?v=<?= @filemtime(__DIR__ . '/../public/assets/tabla.js') ?: 0 ?>"></script>
 <?php if (usuario_id()): ?>
 <script src="assets/chat.js?v=<?= @filemtime(__DIR__ . '/../public/assets/chat.js') ?: 0 ?>"></script>
 <?php endif; ?>

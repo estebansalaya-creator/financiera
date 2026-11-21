@@ -9,14 +9,14 @@ Un préstamo sigue tres pasos: **solicitud** (la carga el vendedor o un operador
 <!-- pantallas: simulador.php -->
 <!-- resumen: Cuota, total, neto, tasas y CFT antes de dar el préstamo. -->
 
-1. Elegí producto, monto y cantidad de cuotas.
+1. Elegí el tipo de asociado, monto y cantidad de cuotas.
 2. Fecha de liquidación (hoy por defecto) y primer vencimiento (vacío = un mes después).
 3. **Simular**. Muestra la primera cuota, el total a pagar, el neto que recibe el cliente, TNA, TEM, TEA y el CFT con IVA, y el cuadro de cuotas.
 4. **Generar PDF** para entregarle al cliente o **Exportar a Excel** con el cuadro.
 
 El simulador usa el mismo cálculo que la liquidación: lo que se simula es lo que se liquida. Todos los préstamos son sistema francés, cuotas mensuales. El CFT es una aproximación mensual al del BCRA, que cuenta días.
 
-Si un producto no tiene una tasa vigente para ese plazo y monto, no se puede simular: se carga en *Tablas y parámetros* → *Productos y tasas*.
+Si un tipo de asociado no tiene una tasa vigente para ese plazo y monto, no se puede simular: se carga en *Tablas y parámetros* → *Tipos de asociado y tasas*.
 
 ## Solicitudes
 <!-- pantallas: solicitudes.php -->
@@ -27,11 +27,13 @@ Si un producto no tiene una tasa vigente para ese plazo y monto, no se puede sim
 **Cargar una solicitud** (también desde la ficha del cliente, *Nueva solicitud*):
 
 1. Cliente: nombre (o parte, al menos 3 letras), CUIT, CUIL o DNI y **Buscar** (o Enter). Si hay una sola coincidencia queda elegido; si hay varias, aparece la lista y se hace click en el que es. Por nombre, un vendedor encuentra los clientes de su cartera (los suyos, los que cargó y los que ya tienen una solicitud suya); con el CUIT, CUIL o DNI, cualquiera. Si es nuevo, primero se da de alta en *Clientes*.
-2. Producto, monto que pide y cuotas. Vendedor (un vendedor carga siempre a su nombre), **Telemarketing** si la venta vino por ahí, destino del préstamo y observaciones para quien autoriza.
+2. Tipo de asociado (viene el habitual del cliente y se puede cambiar), monto que pide y cuotas. Vendedor (un vendedor carga siempre a su nombre), **Telemarketing** si la venta vino por ahí, destino del préstamo y observaciones para quien autoriza.
 3. **Revisar**: muestra la cuota estimada (liquidando hoy), los controles y la documentación.
-4. **Enviar a autorización**. Queda *Pendiente* con su número (`S-000001`…). Con advertencias se puede enviar igual: quien autoriza las ve. Con un control en rojo, no.
+4. **Enviar a autorización**. Queda *Pendiente* con su número, de año y orden: `2026-00000001` (cada año vuelve a empezar en 1). Con advertencias se puede enviar igual: quien autoriza las ve. Con un control en rojo, no.
 
 Si cambiás un dato después de revisar, pide revisar de nuevo.
+
+**Otra solicitud del mismo cliente**. Si el cliente ya tiene una solicitud **igual** (mismo tipo de asociado, monto y cuotas) que todavía espera decisión, no se carga de nuevo: el control en rojo dice cuál es, cuándo se cargó y quién la cargó. Pasa, por ejemplo, si dos vendedores, o el vendedor y telemarketing, cargan la misma operación al mismo tiempo. Si tiene **otras** solicitudes en curso (pendientes, observadas o aprobadas sin liquidar), sale una advertencia con cada una y con cuánto sumarían las cuotas sobre el ingreso si se dieran todas.
 
 | Estado | Qué significa | Qué se puede hacer |
 | --- | --- | --- |
@@ -60,6 +62,8 @@ La solicitud lista cada documento que le corresponde al cliente y dice si es **o
 - **Observar**: vuelve al que la cargó con tu comentario (qué corregir o qué documentación falta). Cuando la reenvía, vuelve a la cola.
 - **Rechazar**: es definitivo; pide el motivo.
 
+Si mientras la mirabas alguien la modificó o la volvió a controlar, la decisión no se aplica y avisa que **cambió mientras la mirabas**: la pantalla ya muestra cómo quedó; revisala y decidí de nuevo. Así nunca se aprueba un monto o un plazo que no se vio.
+
 **Volver a controlar** actualiza la cuota y los controles a hoy (por ejemplo, después de que el cliente regularizó algo).
 
 Debajo están las aprobadas que falta liquidar y las últimas resueltas.
@@ -68,11 +72,12 @@ Debajo están las aprobadas que falta liquidar y las últimas resueltas.
 <!-- pantallas: prestamo_nuevo.php -->
 <!-- resumen: Liquidar una solicitud aprobada: fecha, revisar y liquidar. -->
 
-Una solicitud **aprobada** se liquida desde su ficha o desde el listado (botón **Liquidar**). Cliente, producto, monto, cuotas y vendedor vienen de la solicitud y no se cambian.
+Una solicitud **aprobada** se liquida desde su ficha o desde el listado (botón **Liquidar**). Cliente, tipo de asociado, monto, cuotas y vendedor vienen de la solicitud y no se cambian. *Revisar* muestra, además del cuadro, la comisión que va a cobrar el vendedor y si sale de la escala del tipo, de una excepción suya o de la comisión manual.
 
 1. Fecha de liquidación (hoy por defecto) y primer vencimiento (vacío = un mes después). *Comisión manual* solo para operaciones negociadas; vacío = según las reglas de comisión del vendedor.
 2. **Revisar**. Aparecen los controles a hoy y el cuadro de cuotas con cuota, neto a desembolsar, total a pagar, TNA, TEA y CFT.
-3. **Liquidar**. La solicitud pasa a *Liquidada* y queda unida a su préstamo.
+3. **Desembolso**: el neto se paga con una **orden de pago** a nombre del cliente, que nace al liquidar. Debajo se ve la cuenta del cliente (su CBU y alias); si no los tiene cargados, avisa en rojo: cargalos en su ficha para que se le pueda transferir.
+4. **Liquidar**. La solicitud pasa a *Liquidada* y queda unida a su préstamo, y la orden de pago queda *a pagar* en *Tesorería › Órdenes de pago*. La plata sale de la cuenta cuando Tesorería emite el pago; en la ficha del préstamo, junto al desembolso, se ve la orden y si ya se pagó.
 
 Las advertencias ya las aceptó quien aprobó: no se vuelven a pedir. Un control en rojo (cliente bloqueado) sí impide liquidar.
 
@@ -99,7 +104,7 @@ Si cambiás algún dato después de revisar, el sistema pide revisar de nuevo an
 <!-- pantallas: prestamos.php -->
 <!-- resumen: Tarjetas, filtros por estado y mora, exportación. -->
 
-Tarjetas con cantidad, capital prestado, saldo de capital y préstamos en mora. Filtros por estado, mora (al día, en mora, 1-30, 31-60, 61-90, más de 90 días), producto, vendedor y fechas de liquidación. *Exportar a Excel* trae todo lo filtrado.
+Tarjetas con cantidad, capital prestado, saldo de capital y préstamos en mora. Filtros por estado, mora (al día, en mora, 1-30, 31-60, 61-90, más de 90 días), tipo de asociado, vendedor y fechas de liquidación. *Exportar a Excel* trae todo lo filtrado.
 
 ## Ficha del préstamo
 <!-- pantallas: prestamo.php -->
@@ -109,7 +114,7 @@ Tarjetas con cantidad, capital prestado, saldo de capital y préstamos en mora. 
 - Datos y tasas, y los controles con los que se aprobó.
 - Cuotas con lo pagado y lo pendiente; las vencidas en rojo.
 - Pagos, comisión del vendedor y movimientos (cuenta corriente).
-- **Plan de pagos PDF** para el cliente y **Cobrar** (va a Cobranzas).
+- **Plan de pagos PDF** para el cliente y **Cobrar en efectivo** (va a Cobranzas › Cobros en efectivo).
 
 ### Anular un préstamo
 

@@ -5,6 +5,8 @@ require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/prestamos.php';
 require __DIR__ . '/../inc/solicitudes.php';
+require __DIR__ . '/../inc/ordenes_pago.php';
+require __DIR__ . '/../inc/comisiones_escalas.php';
 
 // ---------------------------------------------------------------------
 // Nuevo préstamo (liquidación)
@@ -16,7 +18,7 @@ require __DIR__ . '/../inc/solicitudes.php';
 //      confirmar y el motivo; con bloqueos, no deja.
 //   Llama a sp_liquidar_prestamo y guarda los controles en el préstamo.
 //   prestamo_nuevo.php?solicitud=N  liquida una solicitud APROBADA: cliente,
-//                                   producto, monto, cuotas y vendedor vienen
+//                                   tipo de asociado, monto, cuotas y vendedor vienen
 //                                   de la solicitud y no se cambian. Las
 //                                   advertencias ya las aceptó el que aprobó.
 //                                   Al liquidar, la solicitud queda LIQUIDADA
@@ -32,8 +34,9 @@ $res     = null;
 $cuadro  = [];
 $ctl     = [];
 $revisado = false;
+$comEst  = null;      // la comisión que va a tocar, para mostrarla antes de liquidar
 
-$campos = ['cliente', 'buscar', 'producto', 'monto', 'plazo', 'fecha', 'primer_vto', 'vendedor', 'comision', 'telemarketing', 'motivo'];
+$campos = ['cliente', 'buscar', 'tipo', 'monto', 'plazo', 'fecha', 'primer_vto', 'vendedor', 'comision', 'telemarketing', 'motivo'];
 $f = [];
 foreach ($campos as $c) {
     $f[$c] = es_post() ? post_str($c) : get_str($c);
@@ -41,6 +44,25 @@ foreach ($campos as $c) {
 $f['fecha'] = $f['fecha'] ?: date('Y-m-d');
 $f['telemarketing'] = $f['telemarketing'] === '1' ? '1' : '0';
 $confirmo = es_post() && post_str('confirmo') === '1';
+
+// Tesorería: de qué cuenta sale el neto, con qué medio y su referencia (N° de
+// transferencia o de cheque). Viene elegida la cuenta predeterminada en pesos.
+$cuentasDes = [];
+$des = ['cuenta' => post_str('cuenta_desembolso'), 'medio' => post_str('medio_desembolso') ?: 'TRANSFERENCIA', 'ref' => post_str('ref_desembolso')];
+// Con órdenes de pago (sql\financiera_ordenes_pago.sql) el neto se paga con la orden que nace al liquidar:
+// la cuenta y el medio los elige Tesorería al emitir el pago.
+$conOP = false;
+try {
+    $conOP = op_instalado();
+    if (fondos_instalado() && !$conOP) {
+        $cuentasDes = cuentas_fondos('ARS');
+        if (!es_post()) {
+            $des['cuenta'] = (string) (cuenta_predeterminada('ARS') ?? '');
+        }
+    }
+} catch (Throwable $e) {
+    error_log('[financiera] cuentas de fondos: ' . $e->getMessage());
+}
 $accion = es_post() ? post_str('accion') : '';
 
 // La solicitud aprobada que se liquida
@@ -59,7 +81,7 @@ if ($idSol > 0) {
     }
     $f['cliente'] = (string) $sol['id_cliente'];
     $f['buscar'] = '';
-    $f['producto'] = (string) $sol['id_producto'];
+    $f['tipo'] = (string) $sol['id_tipo_asociado'];
     $f['monto'] = str_replace('.', ',', (string) (float) $sol['monto']);
     $f['plazo'] = (string) $sol['plazo'];
     $f['vendedor'] = (string) $sol['id_vendedor'];
@@ -96,9 +118,9 @@ function buscar_cliente(string $id, string $txt): array
 }
 
 try {
-    $productos = q("SELECT p.*, EXISTS(SELECT 1 FROM tasas_vigencia t WHERE t.id_producto = p.id_producto
+    $tipos = q("SELECT p.*, EXISTS(SELECT 1 FROM tasas_vigencia t WHERE t.id_tipo_asociado = p.id_tipo_asociado
                                         AND t.vigencia_desde <= CURDATE()) AS con_tasa
-                      FROM productos p WHERE p.activo = 1 ORDER BY p.nombre");
+                      FROM tipos_asociado p WHERE p.activo = 1 ORDER BY p.nombre");
     $vendedores = q('SELECT id_vendedor, nombre FROM vendedores WHERE activo = 1 ORDER BY nombre');
 
     if ($f['cliente'] !== '' || $f['buscar'] !== '') {
@@ -117,7 +139,7 @@ try {
     }
 } catch (Throwable $e) {
     $errores[] = error_amigable($e);
-    $productos = $vendedores = [];
+    $tipos = $vendedores = [];
 }
 
 // ---------------------------------------------------------------------
@@ -135,8 +157,8 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
     if (!$cliente) {
         $errores[] = 'Elegí el cliente.';
     }
-    if ((int) $f['producto'] <= 0) {
-        $errores[] = 'Elegí el producto.';
+    if ((int) $f['tipo'] <= 0) {
+        $errores[] = 'Elegí el tipo de asociado.';
     }
     if ($monto === null || $monto <= 0) {
         $errores[] = 'Escribí el monto a prestar.';
@@ -158,9 +180,12 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
 
     if (!$errores) {
         try {
-            [$res, $cuadro] = prestamo_simular((int) $f['producto'], $monto, (int) $plazo, $fecha, $primer);
+            [$res, $cuadro] = prestamo_simular((int) $f['tipo'], $monto, (int) $plazo, $fecha, $primer);
             [$ctl] = prestamo_controles($cliente, (float) $res['valor_cuota']);
             $revisado = true;
+            $comEst = comision_estimada((int) $f['vendedor'] ?: null, (int) $f['tipo'], (int) $plazo, round($monto, 2),
+                                        (float) $res['gastos_otorg'], $fecha, $f['telemarketing'] === '1',
+                                        $com === null ? null : round($com / 100, 6));
         } catch (Throwable $e) {
             $errores[] = mensaje_bd($e);
             $res = null;
@@ -168,17 +193,36 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
     }
 
     // Lo que se revisó tiene que ser lo que se liquida
-    $firma = hash('sha256', implode('|', [$f['cliente'], $f['producto'], $f['monto'], $f['plazo'], $f['fecha'], $f['primer_vto'], $f['vendedor'], $f['comision'], $f['telemarketing'], (string) $idSol]));
+    $firma = hash('sha256', implode('|', [$f['cliente'], $f['tipo'], $f['monto'], $f['plazo'], $f['fecha'], $f['primer_vto'], $f['vendedor'], $f['comision'], $f['telemarketing'], (string) $idSol]));
     if ($accion === 'liquidar' && $revisado && post_str('firma') !== $firma) {
         $aviso = 'Cambiaste datos después de revisar: mirá de nuevo el cuadro y los controles antes de liquidar.';
         $accion = 'revisar';
     }
 
     if ($accion === 'liquidar' && $revisado) {
+        $errDes = [];
+        if ($cuentasDes) {
+            $cd = $cuentasDes[(int) $des['cuenta']] ?? null;
+            if (!$cd) {
+                $errDes[] = 'Elegí la cuenta de fondos de la que sale el desembolso.';
+            }
+            if (!isset(MEDIOS_DESEMBOLSO[$des['medio']])) {
+                $errDes[] = 'Elegí cómo se desembolsa (transferencia, cheque o efectivo).';
+            } elseif ($des['medio'] === 'CHEQUE') {
+                if ($cd && $cd['tipo'] !== 'B') {
+                    $errDes[] = 'Un desembolso con cheque sale de una cuenta bancaria.';
+                }
+                if (!preg_match('/^\d{1,18}$/', $des['ref'])) {
+                    $errDes[] = 'Escribí el número del cheque del desembolso (solo números).';
+                }
+            }
+        }
         if (controles_hay($ctl, 'bloqueo')) {
             $errores[] = 'Hay controles que impiden liquidar.';
         } elseif (controles_hay($ctl, 'advertencia') && !$sol && (!$confirmo || strlen($f['motivo']) < 10)) {
             $errores[] = 'Hay advertencias: para liquidar igual, tildá la confirmación y escribí el motivo (al menos 10 letras).';
+        } elseif ($errDes) {
+            $errores = array_merge($errores, $errDes);
         } else {
             $pdo = db();
             $idPrestamo = 0;
@@ -190,10 +234,17 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
             for ($intento = 0; $tomada && $intento < 3 && !$idPrestamo; $intento++) {
                 $nro = prestamo_proximo_nro($intento);
                 try {
-                    $st = $pdo->prepare('CALL sp_liquidar_prestamo(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, @id_prestamo)');
-                    $st->execute([$nro, (int) $cliente['id_cliente'], (int) $f['producto'], (int) $f['vendedor'] ?: null,
-                                  round($monto, 2), (int) $plazo, $fecha, $primer,
-                                  $com === null ? null : round($com / 100, 6), (int) $f['telemarketing'], usuario_id()]);
+                    $args = [$nro, (int) $cliente['id_cliente'], (int) $f['tipo'], (int) $f['vendedor'] ?: null,
+                             round($monto, 2), (int) $plazo, $fecha, $primer,
+                             $com === null ? null : round($com / 100, 6), (int) $f['telemarketing'], usuario_id()];
+                    if (fondos_instalado() && !$conOP) {   // Tesorería sin órdenes de pago: el desembolso entra al libro al liquidar
+                        $st = $pdo->prepare('CALL sp_liquidar_prestamo(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, @id_prestamo)');
+                        $st->execute(array_merge($args, [$cuentasDes ? (int) $des['cuenta'] : null, $des['medio'],
+                                                         $des['ref'] !== '' ? mb_substr($des['ref'], 0, 100) : null]));
+                    } else {
+                        $st = $pdo->prepare('CALL sp_liquidar_prestamo(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, @id_prestamo)');
+                        $st->execute($args);
+                    }
                     while ($st->nextRowset()) {
                     }
                     $st->closeCursor();
@@ -224,7 +275,9 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
                 } catch (Throwable $e) {
                     error_log('[financiera] no se guardaron los controles del préstamo ' . $idPrestamo . ': ' . $e->getMessage());
                 }
-                flash('ok', 'Préstamo ' . $nro . ' liquidado: ' . money($res['capital']) . ' en ' . (int) $res['plazo'] . ' cuotas de ' . money($res['valor_cuota']) . '.');
+                $op = $conOP ? q1('SELECT nro_orden, importe FROM ordenes_pago WHERE id_prestamo = ?', [$idPrestamo]) : null;
+                flash('ok', 'Préstamo ' . $nro . ' liquidado: ' . money($res['capital']) . ' en ' . (int) $res['plazo'] . ' cuotas de ' . money($res['valor_cuota']) . '.'
+                    . ($op ? ' El neto (' . money($op['importe']) . ') se paga con la orden ' . $op['nro_orden'] . ': la emite Tesorería en Órdenes de pago.' : ''));
                 redirigir('prestamo.php?id=' . $idPrestamo);
             } elseif (!$errores) {
                 $errores[] = 'No se pudo asignar un número de préstamo. Probá de nuevo.';
@@ -236,7 +289,7 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
     }
 }
 
-$firma = hash('sha256', implode('|', [$f['cliente'], $f['producto'], $f['monto'], $f['plazo'], $f['fecha'], $f['primer_vto'], $f['vendedor'], $f['comision'], $f['telemarketing'], (string) $idSol]));
+$firma = hash('sha256', implode('|', [$f['cliente'], $f['tipo'], $f['monto'], $f['plazo'], $f['fecha'], $f['primer_vto'], $f['vendedor'], $f['comision'], $f['telemarketing'], (string) $idSol]));
 $cft = null;
 if ($res && $cuadro) {
     $i = prestamo_tir_mensual((float) $res['neto_desembolso'], array_map(function ($c) { return (float) $c['importe']; }, $cuadro));
@@ -288,16 +341,16 @@ mensajes($errores);
           </div>
         <?php endif; ?>
         <div class="campo" style="--span:4">
-          <label for="producto">Producto <span class="req">*</span></label>
-          <select id="producto" name="producto" required<?= $bloq ?>>
+          <label for="tipo">Tipo de asociado <span class="req">*</span></label>
+          <select id="tipo" name="tipo" required<?= $bloq ?>>
             <option value="">Elegí…</option>
-            <?php foreach ($productos as $p): ?>
-              <option value="<?= (int) $p['id_producto'] ?>" <?= (string) $p['id_producto'] === $f['producto'] ? 'selected' : '' ?> <?= $p['con_tasa'] ? '' : 'disabled' ?>
+            <?php foreach ($tipos as $p): ?>
+              <option value="<?= (int) $p['id_tipo_asociado'] ?>" <?= (string) $p['id_tipo_asociado'] === $f['tipo'] ? 'selected' : '' ?> <?= $p['con_tasa'] ? '' : 'disabled' ?>
                       data-plazo="<?= (int) $p['plazo_min'] ?>-<?= (int) $p['plazo_max'] ?>" data-monto="<?= h(money($p['monto_min'])) ?> a <?= h(money($p['monto_max'])) ?>">
                 <?= h($p['nombre']) ?><?= $p['con_tasa'] ? '' : ' (sin tasa vigente)' ?></option>
             <?php endforeach; ?>
           </select>
-          <span class="campo-ayuda" id="prod-ayuda"></span>
+          <span class="campo-ayuda" id="tipo-ayuda"></span>
         </div>
         <div class="campo" style="--span:3">
           <label for="vendedor">Vendedor</label>
@@ -322,7 +375,7 @@ mensajes($errores);
         </div>
         <div class="campo" style="--span:3">
           <label for="comision">Comisión manual (%)</label>
-          <input id="comision" name="comision" value="<?= h($f['comision']) ?>" inputmode="decimal" class="derecha" placeholder="según reglas">
+          <input id="comision" name="comision" value="<?= h($f['comision']) ?>" inputmode="decimal" class="derecha" placeholder="según escala">
           <span class="campo-ayuda">solo si es una operación negociada</span>
         </div>
         <div class="campo campo-boton" style="--span:2">
@@ -351,6 +404,17 @@ mensajes($errores);
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Neto a desembolsar</span><strong><?= money($res['neto_desembolso']) ?></strong><span class="bcra-tarjeta-sub">gastos <?= money($res['gastos_otorg']) ?></span></div>
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Total a pagar</span><strong><?= money($res['total_a_pagar']) ?></strong><span class="bcra-tarjeta-sub">intereses <?= money($res['total_intereses']) ?> · IVA <?= money($res['total_iva']) ?></span></div>
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Tasas</span><strong><?= pct($res['tna']) ?> TNA</strong><span class="bcra-tarjeta-sub">TEA <?= pct($res['tea']) ?><?= $cft !== null ? ' · CFT con IVA ' . pct($cft) : '' ?></span></div>
+        <?php if ($comEst): ?>
+        <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Comisión del vendedor</span>
+          <?php if ($comEst['pct'] === null): ?>
+            <strong>Sin comisión</strong><span class="bcra-tarjeta-sub">ninguna escala cubre este monto</span>
+          <?php else: ?>
+            <strong><?= money($comEst['monto']) ?></strong>
+            <span class="bcra-tarjeta-sub"><?= h(escala_pct_campo($comEst['pct'])) ?> % · <?= $comEst['origen'] === 'manual' ? 'manual'
+                : ($comEst['origen'] === 'excepción' ? 'excepción del vendedor' : 'escala del tipo de asociado') ?><?= $f['telemarketing'] === '1' && $comEst['origen'] !== 'manual' ? ' (telemarketing)' : '' ?></span>
+          <?php endif; ?>
+        </div>
+        <?php endif; ?>
       </div>
     </div>
     <div class="data-table-wrap">
@@ -385,6 +449,62 @@ mensajes($errores);
           </div>
         </div>
       <?php endif; ?>
+      <?php if ($cuentasDes): ?>
+        <div class="bloque">
+          <div class="bloque-titulo">Desembolso</div>
+          <div class="campos">
+            <?= campo_cuenta_fondos('cuenta_desembolso', 'Sale de', $cuentasDes, $des['cuenta'], 5, 'sale el neto: ' . money($res['neto_desembolso'])) ?>
+            <div class="campo" style="--span:3"><label for="medio_desembolso">Medio</label>
+              <select id="medio_desembolso" name="medio_desembolso"><?= opciones(MEDIOS_DESEMBOLSO, $des['medio']) ?></select></div>
+            <div class="campo" style="--span:4"><label for="ref_desembolso" id="lbl-ref-des">N° de transferencia</label>
+              <input id="ref_desembolso" name="ref_desembolso" value="<?= h($des['ref']) ?>" maxlength="100" class="mono">
+              <span class="campo-ayuda" id="ayuda-ref-des"></span></div>
+            <?php if ($cliente && columna_existe('clientes', 'cbu')):
+                $destino = datos_bancarios_html($cliente['cbu'] ?? null, $cliente['alias_cbu'] ?? null); ?>
+            <div class="campo" style="--span:12" id="des-destino">
+              <span class="campo-label">Se le transfiere a</span>
+              <?php if ($destino !== ''): ?>
+                <div><?= $destino ?></div>
+              <?php else: ?>
+                <div class="texto-error">El cliente no tiene CBU ni alias: cargalos en <a href="cliente.php?id=<?= (int) $cliente['id_cliente'] ?>" target="_blank" rel="noopener">su ficha</a> antes de transferirle.</div>
+              <?php endif; ?>
+            </div>
+            <?php endif; ?>
+          </div>
+        </div>
+        <script>
+        (function () {
+          var m = document.getElementById('medio_desembolso'), l = document.getElementById('lbl-ref-des'), a = document.getElementById('ayuda-ref-des');
+          function poner() {
+            l.textContent = m.value === 'CHEQUE' ? 'N° de cheque' : (m.value === 'EFECTIVO' ? 'Referencia' : 'N° de transferencia');
+            a.textContent = m.value === 'CHEQUE' ? 'de una chequera de la cuenta (Cuentas de fondos › Chequeras)' : '';
+            var d = document.getElementById('des-destino');
+            if (d) d.classList.toggle('oculto', m.value !== 'TRANSFERENCIA');
+          }
+          m.addEventListener('change', poner);
+          poner();
+        })();
+        </script>
+      <?php endif; ?>
+      <?php if ($conOP): ?>
+        <div class="bloque">
+          <div class="bloque-titulo">Desembolso</div>
+          <div class="campos">
+            <div class="campo" style="--span:12"><span class="campo-label">Se paga con una orden de pago</span>
+              <div>El neto, <strong><?= money($res['neto_desembolso']) ?></strong>, queda en una orden de pago a nombre del cliente. Tesorería la paga en <em>Órdenes de pago</em> (transferencia, cheque o efectivo) y ahí sale la plata de la cuenta.</div></div>
+            <?php if ($cliente && columna_existe('clientes', 'cbu')):
+                $destino = datos_bancarios_html($cliente['cbu'] ?? null, $cliente['alias_cbu'] ?? null); ?>
+            <div class="campo" style="--span:12"><span class="campo-label">Cuenta del cliente</span>
+              <?php if ($destino !== ''): ?>
+                <div><?= $destino ?></div>
+              <?php else: ?>
+                <div class="texto-error">El cliente no tiene CBU ni alias: cargalos en <a href="cliente.php?id=<?= (int) $cliente['id_cliente'] ?>" target="_blank" rel="noopener">su ficha</a> para que se le pueda transferir.</div>
+              <?php endif; ?>
+            </div>
+            <?php endif; ?>
+          </div>
+        </div>
+      <?php endif; ?>
       <div class="form-acciones">
         <span class="campo-ayuda" style="margin-right:auto">Se liquida con el número <?= h(prestamo_proximo_nro()) ?> (o el siguiente libre).</span>
         <button type="submit" name="accion" value="liquidar" class="btn btn-ok"><?= icono('guardar') ?>Liquidar <?= money($res['capital']) ?></button>
@@ -396,7 +516,7 @@ mensajes($errores);
 
 <script>
 (function () {
-  var sel = document.getElementById('producto'), ayuda = document.getElementById('prod-ayuda');
+  var sel = document.getElementById('tipo'), ayuda = document.getElementById('tipo-ayuda');
   function mostrar() {
     var op = sel.options[sel.selectedIndex];
     ayuda.textContent = op && op.value ? op.getAttribute('data-plazo').replace('-', ' a ') + ' cuotas · ' + op.getAttribute('data-monto') : '';

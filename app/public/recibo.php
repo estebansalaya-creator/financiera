@@ -3,66 +3,84 @@ declare(strict_types=1);
 
 require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
-require __DIR__ . '/../inc/cobranzas.php';
+require __DIR__ . '/../inc/recibos.php';
 
 // ---------------------------------------------------------------------
-// Recibo de un pago
-//   recibo.php?id=N              en pantalla
-//   recibo.php?id=N&export=pdf   PDF para entregar al cliente
-//   POST accion=anular           sp_anular_pago (solo el último aplicado)
+// Recibo de cobranza. Un recibo cubre uno o más préstamos del cliente (la
+// Cobros bancarios aplica un crédito del banco a todos sus préstamos):
+// un pago por préstamo, cada uno con su imputación a las cuotas.
+//   recibo.php?r=N              el recibo
+//   recibo.php?id=N             el recibo del pago N (los enlaces de antes)
+//   &export=pdf                 PDF para entregar al cliente
+//   POST accion=anular          sp_anular_recibo: el recibo entero. Cada
+//                               pago tiene que ser el último de su préstamo.
+//                               Con volver=cobranzas.php…, vuelve ahí.
 // ---------------------------------------------------------------------
 
-$id = (int) get_str('id');
 $errores = [];
+$idRec = (int) get_str('r');
+try {
+    if (!$idRec && get_str('id') !== '') {
+        $idRec = recibo_de_pago((int) get_str('id')) ?? 0;
+    }
+} catch (Throwable $e) {
+    $errores[] = error_amigable($e);
+}
 
-if (es_post() && post_str('accion') === 'anular') {
+if (es_post() && post_str('accion') === 'anular' && $idRec) {
     csrf_exigir();
     try {
-        $st = db()->prepare('CALL sp_anular_pago(?, ?, ?)');
-        $st->execute([$id, post_str('motivo'), usuario_id()]);
+        $st = db()->prepare('CALL sp_anular_recibo(?, ?, ?)');
+        $st->execute([$idRec, post_str('motivo'), usuario_id()]);
         while ($st->nextRowset()) {
         }
         $st->closeCursor();
-        flash('ok', 'Pago anulado. La deuda del préstamo volvió a como estaba.');
-        redirigir('recibo.php?id=' . $id);
+        flash('ok', 'Recibo anulado. La deuda de sus préstamos volvió a como estaba.');
+        // Desde la grilla de Recibos emitidos se vuelve a la grilla, con sus filtros.
+        $volver = post_str('volver');
+        redirigir(preg_match('/^cobranzas\.php(\?|$)/', $volver) ? $volver : 'recibo.php?r=' . $idRec);
     } catch (Throwable $e) {
         $errores[] = mensaje_bd($e);
     }
 }
 
 $g = null;
-$imp = [];
+$pagos = [];
 try {
-    $g = q1('SELECT g.*, p.nro_prestamo, p.id_prestamo, p.plazo, p.id_cliente, c.denominacion, c.cuit, pr.nombre AS producto, l.archivo AS lote_archivo
-               FROM pagos g
-               JOIN prestamos p ON p.id_prestamo = g.id_prestamo
-               JOIN clientes c ON c.id_cliente = p.id_cliente
-               JOIN productos pr ON pr.id_producto = p.id_producto
-               LEFT JOIN lotes_cobranza l ON l.id_lote = g.id_lote
-              WHERE g.id_pago = ?', [$id]);
-    if ($g) {
-        $imp = q("SELECT c.nro_cuota, c.vencimiento,
-                         SUM(IF(pi.concepto = 'CAPITAL', pi.importe, 0)) AS capital,
-                         SUM(IF(pi.concepto IN ('INTERES', 'IVA_INTERES'), pi.importe, 0)) AS interes,
-                         SUM(IF(pi.concepto IN ('PUNITORIO', 'IVA_PUNITORIO'), pi.importe, 0)) AS punitorio,
-                         SUM(pi.importe) AS total
-                    FROM pagos_imputacion pi JOIN cuotas c ON c.id_cuota = pi.id_cuota
-                   WHERE pi.id_pago = ? GROUP BY c.nro_cuota, c.vencimiento ORDER BY c.nro_cuota", [$id]);
+    if ($idRec) {
+        $g = recibo_leer($idRec);
+        if ($g) {
+            $pagos = recibo_pagos($idRec);
+        }
     }
 } catch (Throwable $e) {
     $errores[] = error_amigable($e);
 }
 
-$saldo = null;
+// Se anula entero: cada pago tiene que ser el último aplicado de su préstamo.
 $anulable = false;
+$porQueNo = '';
+if ($g && $g['estado'] === 'APLICADO') {
+    $anulable = (bool) $pagos;
+    foreach ($pagos as $p) {
+        if ((int) $p['ultimo_del_prestamo'] !== (int) $p['id_pago']) {
+            $anulable = false;
+            $porQueNo = 'El préstamo ' . $p['nro_prestamo'] . ' tiene un pago posterior: para anular este recibo, primero hay que anular ese.';
+            break;
+        }
+    }
+}
+$saldoTotal = array_sum(array_map(function ($p) { return (float) ($p['saldo']['deuda'] ?? 0); }, $pagos));
+$nros = implode(', ', array_column($pagos, 'nro_prestamo'));
+$origen = '';
 if ($g) {
-    try {
-        $saldo = q1("SELECT SUM(capital_pend + interes_pend + iva_pend + punit_pend + ivap_pend) AS deuda,
-                            SUM(capital_pend) AS capital, SUM(estado = 'PAGADA') AS pagadas
-                       FROM v_cuotas_saldo WHERE id_prestamo = ?", [$g['id_prestamo']]);
-        $anulable = $g['estado'] === 'APLICADO' && ultimo_pago_aplicado((int) $g['id_prestamo']) === $id;
-    } catch (Throwable $e) {
-        $errores[] = error_amigable($e);
+    if ($g['id_extracto']) {
+        $origen = 'Crédito del banco del ' . fecha($g['ext_fecha']) . ($g['ext_referencia'] ? ' (ref. ' . $g['ext_referencia'] . ')' : '')
+                . ($g['cuil_pagador'] && $g['cuil_pagador'] !== $g['cuit'] ? ' · pagó ' . cuit_fmt($g['cuil_pagador']) : '');
+    } elseif ($g['id_lote']) {
+        $origen = 'Lote N° ' . (int) $g['id_lote'] . ($g['lote_archivo'] ? ' · ' . $g['lote_archivo'] : '');
+    } else {
+        $origen = 'Cargado el ' . date('d/m/Y H:i', strtotime((string) $g['creado_el']));
     }
 }
 
@@ -72,105 +90,120 @@ if ($g) {
 if ($g && get_str('export') === 'pdf') {
     require_once __DIR__ . '/../inc/pdf.php';
     $rep = new PdfReporte('Recibo ' . $g['nro_recibo'] . ($g['estado'] === 'ANULADO' ? ' · ANULADO' : ''),
-                          $g['denominacion'] . ' · CUIT/CUIL ' . cuit_fmt($g['cuit']) . ' · préstamo ' . $g['nro_prestamo'] . ' · ' . $g['producto'], false);
+                          $g['denominacion'] . ' · CUIT/CUIL ' . cuit_fmt($g['cuit']) . ' · ' . (count($pagos) === 1 ? 'préstamo ' : 'préstamos ') . $nros, false);
     $rep->indicadores([
         ['Importe', money($g['importe'])],
         ['Fecha', fecha($g['fecha'])],
         ['Medio', MEDIOS_PAGO[$g['medio']] ?? $g['medio']],
     ]);
-    if ($g['modo'] === 'CANCELACION') {
-        $rep->nota('Cancelación total anticipada del préstamo.');
+    if (($g['talonario_letra'] ?? '') === 'X') {
+        $rep->nota('Documento no válido como factura.');
     }
     if ($g['referencia']) {
         $rep->nota('Referencia: ' . $g['referencia']);
     }
-    $rep->seccion('Imputación');
-    $rep->tabla(
-        [['Cuota', 0.7, 'R'], ['Vencimiento', 1.2, 'L'], ['Capital', 1.3, 'R'], ['Interés + IVA', 1.3, 'R'], ['Punitorios + IVA', 1.3, 'R'], ['Total', 1.3, 'R']],
-        array_map(function ($r) use ($g) {
-            return [(int) $r['nro_cuota'] . ' de ' . (int) $g['plazo'], fecha($r['vencimiento']), money($r['capital']), money($r['interes']),
-                    money($r['punitorio']), money($r['total'])];
-        }, $imp),
-        ['', 'TOTAL', money(array_sum(array_column($imp, 'capital'))), money(array_sum(array_column($imp, 'interes'))),
-         money(array_sum(array_column($imp, 'punitorio'))), money($g['importe'])]
-    );
-    if ($g['estado'] === 'ANULADO') {
-        $rep->nota('Pago ANULADO el ' . date('d/m/Y H:i', strtotime((string) $g['anulado_el'])) . ': ' . $g['motivo_anulacion']);
-    } elseif ($saldo) {
-        $rep->nota('Saldo actual del préstamo al ' . date('d/m/Y') . ': ' . money($saldo['deuda']) . ' (capital ' . money($saldo['capital']) . '; sin punitorios a devengar).');
+    foreach ($pagos as $p) {
+        $rep->seccion('Préstamo ' . $p['nro_prestamo'] . ' · ' . $p['tipo_asociado'], 'aplicado ' . money($p['importe'])
+                      . ($p['modo'] === 'CANCELACION' ? ' · cancelación total anticipada' : ''));
+        $rep->tabla(
+            [['Cuota', 0.7, 'R'], ['Vencimiento', 1.2, 'L'], ['Capital', 1.3, 'R'], ['Interés + IVA', 1.3, 'R'], ['Punitorios + IVA', 1.3, 'R'], ['Total', 1.3, 'R']],
+            array_map(function ($r) use ($p) {
+                return [(int) $r['nro_cuota'] . ' de ' . (int) $p['plazo'], fecha($r['vencimiento']), money($r['capital']), money($r['interes']),
+                        money($r['punitorio']), money($r['total'])];
+            }, $p['cuotas']),
+            ['', 'TOTAL', money(array_sum(array_column($p['cuotas'], 'capital'))), money(array_sum(array_column($p['cuotas'], 'interes'))),
+             money(array_sum(array_column($p['cuotas'], 'punitorio'))), money($p['importe'])]
+        );
+        if ($g['estado'] !== 'ANULADO' && $p['saldo']) {
+            $rep->nota('Saldo actual del préstamo ' . $p['nro_prestamo'] . ' al ' . date('d/m/Y') . ': ' . money($p['saldo']['deuda'])
+                       . ' (capital ' . money($p['saldo']['capital']) . '; sin punitorios a devengar).');
+        }
     }
-    $rep->enviar('recibo_' . $g['nro_recibo'] . '.pdf');
+    if ($g['estado'] === 'ANULADO') {
+        $rep->nota('Recibo ANULADO el ' . date('d/m/Y H:i', strtotime((string) $g['anulado_el'])) . ': ' . $g['motivo_anulacion']);
+    }
+    $rep->enviar('recibo_' . preg_replace('/[^\w\-]+/', '_', (string) $g['nro_recibo']) . '.pdf');
     exit;
 }
 
 if (!$g && !$errores) {
     http_response_code(404);
 }
+
 layout_inicio($g ? 'Recibo ' . $g['nro_recibo'] : 'Recibo', 'cobranzas');
 if (!$g) {
     mensajes($errores);
     echo '<div class="pantalla-aviso"><div class="pantalla-aviso-icono">' . icono('alerta', 40) . '</div>'
-       . '<h1>No existe ese pago</h1>' . boton('Ir a cobranzas', 'primary', 'cobranzas.php', 'volver') . '</div>';
+       . '<h1>No existe ese recibo</h1>' . boton('Ir a Recibos emitidos', 'primary', 'cobranzas.php', 'volver') . '</div>';
     layout_fin();
     exit;
 }
 
-titulo('Recibo ' . $g['nro_recibo'], $g['denominacion'] . ' · préstamo ' . $g['nro_prestamo'],
-       boton('Recibo PDF', 'pdf', 'recibo.php?id=' . $id . '&export=pdf', 'pdf', false, false, ['target' => '_blank', 'rel' => 'noopener'])
-     . boton('Cobrar otro', 'primary', 'cobrar.php', 'dinero'),
-       '<a href="cobranzas.php">Cobranzas</a> / <a href="prestamo.php?id=' . (int) $g['id_prestamo'] . '">' . h($g['nro_prestamo']) . '</a> / ' . h($g['nro_recibo']));
+$verPrestamo = puede_abrir('prestamo.php');
+titulo('Recibo ' . $g['nro_recibo'],
+       $g['denominacion'] . ' · ' . (count($pagos) === 1 ? 'préstamo ' : 'préstamos ') . $nros . ($g['talonario'] ? ' · talonario ' . $g['talonario'] : ''),
+       boton('Recibo PDF', 'pdf', 'recibo.php?r=' . $idRec . '&export=pdf', 'pdf', false, false, ['target' => '_blank', 'rel' => 'noopener'])
+     . (puede('cobrar.php') ? boton('Otro cobro en efectivo', 'primary', 'cobrar.php', 'dinero') : ''),
+       '<a href="cobranzas.php">Recibos emitidos</a>' . ($g['id_extracto'] && puede('emision_recibos.php') ? ' / <a href="emision_recibos.php?cuenta=' . (int) $g['id_cuenta_fondos'] . '">Cobros bancarios</a>' : '')
+     . ' / ' . h($g['nro_recibo']));
 mensajes($errores);
 ?>
 
 <div class="bcra-tarjetas indicadores-fila">
   <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Importe</span><strong><?= money($g['importe']) ?></strong>
-    <span class="bcra-tarjeta-sub"><?= $g['modo'] === 'CANCELACION' ? 'cancelación total' : 'pago a cuenta' ?></span></div>
+    <span class="bcra-tarjeta-sub"><?= count($pagos) === 1 ? ($pagos[0]['modo'] === 'CANCELACION' ? 'cancelación total' : 'pago a cuenta') : 'aplicado a ' . count($pagos) . ' préstamos' ?></span></div>
   <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Fecha y medio</span><strong><?= h(fecha($g['fecha'])) ?></strong>
-    <span class="bcra-tarjeta-sub"><?= h(MEDIOS_PAGO[$g['medio']] ?? $g['medio']) ?><?= $g['referencia'] ? ' · ' . h($g['referencia']) : '' ?></span></div>
+    <span class="bcra-tarjeta-sub"><?= h(MEDIOS_PAGO[$g['medio']] ?? $g['medio']) ?><?= $g['referencia'] ? ' · ' . h($g['referencia']) : '' ?><?= $g['cuenta'] ? ' · entró en ' . h($g['cuenta']) : '' ?></span></div>
   <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Estado</span><?= $g['estado'] === 'ANULADO' ? estado('Anulado', 'danger') : estado('Aplicado', 'ok') ?>
-    <span class="bcra-tarjeta-sub"><?= $g['id_lote'] ? 'lote N° ' . (int) $g['id_lote'] . ($g['lote_archivo'] ? ' · ' . h($g['lote_archivo']) : '') : 'cargado el ' . h(date('d/m/Y H:i', strtotime($g['creado_el']))) ?></span></div>
-  <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Saldo actual del préstamo</span><strong><?= $saldo ? money($saldo['deuda']) : '—' ?></strong>
-    <span class="bcra-tarjeta-sub"><?= $saldo ? (int) $saldo['pagadas'] . ' de ' . (int) $g['plazo'] . ' cuotas pagadas' : '' ?></span></div>
+    <span class="bcra-tarjeta-sub"><?= h($origen) ?></span></div>
+  <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Saldo actual <?= count($pagos) === 1 ? 'del préstamo' : 'de los préstamos' ?></span><strong><?= money($saldoTotal) ?></strong>
+    <span class="bcra-tarjeta-sub"><?php if (count($pagos) === 1 && $pagos[0]['saldo']): ?><?= (int) $pagos[0]['saldo']['pagadas'] ?> de <?= (int) $pagos[0]['plazo'] ?> cuotas pagadas<?php endif; ?></span></div>
 </div>
 
 <?php if ($g['estado'] === 'ANULADO'): ?>
-  <?php alerta('Anulado el ' . date('d/m/Y H:i', strtotime((string) $g['anulado_el'])) . ': ' . $g['motivo_anulacion'], 'warning'); ?>
+  <?php alerta('Anulado el ' . date('d/m/Y H:i', strtotime((string) $g['anulado_el'])) . ': ' . $g['motivo_anulacion']
+               . ($g['id_extracto'] ? ' El crédito del banco volvió a quedar para emitir.' : ''), 'warning'); ?>
 <?php endif; ?>
 
+<?php foreach ($pagos as $p): ?>
 <div class="card">
-  <?= card_head('Imputación', 'cómo se aplicó el pago a las cuotas') ?>
+  <?= card_head('Préstamo ' . $p['nro_prestamo'],
+                $p['tipo_asociado'] . ' · aplicado ' . money($p['importe']) . ($p['modo'] === 'CANCELACION' ? ' · cancelación total' : '')
+                . ($p['saldo'] ? ' · saldo actual ' . money($p['saldo']['deuda']) : ''),
+                $verPrestamo ? btn_accion('ver', 'prestamo.php?id=' . (int) $p['id_prestamo'], 'Ver el préstamo') : '') ?>
   <div class="data-table-wrap">
-    <table class="data-table" data-sin-orden>
+    <table class="data-table" data-sin-orden data-sin-paginar>
       <thead><tr><th class="th-right" data-no-sort>Cuota</th><th data-no-sort>Vencimiento</th><th class="th-right" data-no-sort>Capital</th>
         <th class="th-right" data-no-sort>Interés + IVA</th><th class="th-right" data-no-sort>Punitorios + IVA</th><th class="th-right" data-no-sort>Total</th></tr></thead>
       <tbody>
-      <?php foreach ($imp as $r): ?>
-        <tr><td class="td-right"><?= (int) $r['nro_cuota'] ?> de <?= (int) $g['plazo'] ?></td><td><?= h(fecha($r['vencimiento'])) ?></td>
+      <?php foreach ($p['cuotas'] as $r): ?>
+        <tr><td class="td-right"><?= (int) $r['nro_cuota'] ?> de <?= (int) $p['plazo'] ?></td><td><?= h(fecha($r['vencimiento'])) ?></td>
           <td class="td-right"><?= money($r['capital']) ?></td><td class="td-right"><?= money($r['interes']) ?></td>
           <td class="td-right"><?= (float) $r['punitorio'] > 0 ? money($r['punitorio']) : '<span class="td-muted">—</span>' ?></td>
           <td class="td-right td-fuerte"><?= money($r['total']) ?></td></tr>
       <?php endforeach; ?>
       </tbody>
-      <tfoot><tr class="total-row"><td colspan="2">TOTAL</td><td class="td-right"><?= money(array_sum(array_column($imp, 'capital'))) ?></td>
-        <td class="td-right"><?= money(array_sum(array_column($imp, 'interes'))) ?></td><td class="td-right"><?= money(array_sum(array_column($imp, 'punitorio'))) ?></td>
-        <td class="td-right"><?= money($g['importe']) ?></td></tr></tfoot>
+      <tfoot><tr class="total-row"><td colspan="2">TOTAL</td><td class="td-right"><?= money(array_sum(array_column($p['cuotas'], 'capital'))) ?></td>
+        <td class="td-right"><?= money(array_sum(array_column($p['cuotas'], 'interes'))) ?></td><td class="td-right"><?= money(array_sum(array_column($p['cuotas'], 'punitorio'))) ?></td>
+        <td class="td-right"><?= money($p['importe']) ?></td></tr></tfoot>
     </table>
   </div>
 </div>
+<?php endforeach; ?>
 
 <?php if ($g['estado'] === 'APLICADO'): ?>
 <div class="card">
-  <?= card_head('Anular el pago', $anulable ? 'vuelve la deuda a como estaba' : 'solo se puede anular el último pago del préstamo') ?>
+  <?= card_head('Anular el recibo', $anulable ? 'vuelve la deuda ' . (count($pagos) === 1 ? 'del préstamo' : 'de los ' . count($pagos) . ' préstamos') . ' a como estaba' : $porQueNo) ?>
   <?php if ($anulable): ?>
-    <form method="post" action="recibo.php?id=<?= $id ?>" class="bloque" data-confirmar="Se anula el recibo <?= h($g['nro_recibo']) ?> por <?= h(money($g['importe'])) ?>. Los punitorios que ya se habían devengado se mantienen."
-          data-confirmar-titulo="Anular el pago" data-confirmar-boton="Anular" data-peligro>
+    <form method="post" action="recibo.php?r=<?= $idRec ?>" class="bloque" data-confirmar="Se anula el recibo <?= h($g['nro_recibo']) ?> por <?= h(money($g['importe'])) ?><?= count($pagos) > 1 ? ', con lo que aplicó a los ' . count($pagos) . ' préstamos' : '' ?>. Los punitorios que ya se habían devengado se mantienen y el número no se vuelve a usar."
+          data-confirmar-titulo="Anular el recibo" data-confirmar-boton="Anular" data-peligro>
       <?= csrf_campo() ?>
       <input type="hidden" name="accion" value="anular">
       <div class="campos">
         <div class="campo" style="--span:9"><label for="motivo">Motivo <span class="req">*</span></label>
-          <input id="motivo" name="motivo" maxlength="200" required placeholder="Ej.: se cargó en el préstamo equivocado"></div>
+          <input id="motivo" name="motivo" maxlength="200" required placeholder="Ej.: se cargó al cliente equivocado"></div>
         <div class="campo campo-boton" style="--span:3"><span class="campo-label">&nbsp;</span>
-          <?= boton('Anular pago', 'danger', null, 'borrar', true) ?></div>
+          <?= boton('Anular recibo', 'danger', null, 'borrar', true) ?></div>
       </div>
     </form>
   <?php endif; ?>

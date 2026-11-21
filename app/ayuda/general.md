@@ -57,6 +57,6 @@ El menú de la izquierda está armado por módulos (Créditos, Clientes, Cobranz
 <!-- pantallas: ayuda.php -->
 <!-- resumen: El botón Ayuda, la tecla F1 y el buscador de los manuales. -->
 
-- El botón **Ayuda** (abajo a la derecha) y la tecla **F1** abren el manual en la sección de la pantalla donde estás.
+- El botón **Ayuda** (en la barra de arriba) y la tecla **F1** abren el manual en la sección de la pantalla donde estás.
 - El índice de la ayuda busca en todos los manuales: escribí una o varias palabras (sin importar los acentos).
 - **Ir a la pantalla** aparece solo si tenés esa pantalla en tu menú.

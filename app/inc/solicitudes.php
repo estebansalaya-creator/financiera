@@ -18,9 +18,26 @@ declare(strict_types=1);
 //
 //   Los cambios de estado se hacen con UPDATE … WHERE estado = el
 //   esperado: si dos personas resuelven la misma a la vez, gana una sola.
+//   Y con la versión que se vio (solicitudes.version, sube con cada
+//   cambio): si mientras alguien la miraba la modificaron o la volvieron a
+//   controlar, su decisión no se aplica y tiene que revisarla de nuevo.
+//
+//   Número: año y número, 2026-00000001 (vuelve a 1 cada año). Sale de
+//   sp_numerador (serie SOL-2026) dentro de la transacción del alta.
+//
+//   Dos a la vez del mismo cliente: el alta y la modificación bloquean la
+//   fila del cliente, así se graban de a una y la segunda ve a la primera
+//   (sol_en_curso). Una igual (mismo tipo de asociado, monto y cuotas) todavía sin
+//   resolver no se carga; las demás en curso son una advertencia y suman
+//   sus cuotas en la relación cuota / ingreso.
 // ---------------------------------------------------------------------
 
 require_once __DIR__ . '/prestamos.php';
+
+/** La solicitud no se grabó por una razón que se le explica a la persona (no es un error de la base). */
+class SolicitudFrenada extends RuntimeException
+{
+}
 
 const ESTADOS_SOLICITUD = ['PENDIENTE' => 'Pendiente', 'OBSERVADA' => 'Observada', 'APROBADA' => 'Aprobada',
                            'RECHAZADA' => 'Rechazada', 'LIQUIDADA' => 'Liquidada', 'ANULADA' => 'Anulada'];
@@ -76,16 +93,17 @@ function sol_filtro_visibles(): array
     return $vend ? ['(s.creado_por = ? OR s.id_vendedor = ?)', [usuario_id(), $vend]] : ['s.creado_por = ?', [usuario_id()]];
 }
 
-/** La solicitud con su cliente, producto, vendedor y usuarios; null si no existe o no la puede ver. */
+/** La solicitud con su cliente, tipo de asociado, vendedor y usuarios; null si no existe o no la puede ver. */
 function sol_cargar(int $id): ?array
 {
     [$w, $p] = sol_filtro_visibles();
     return q1("SELECT s.*, c.denominacion, c.cuit, c.tipo AS cliente_tipo, c.estado AS cliente_estado,
-                      pr.nombre AS producto, v.nombre AS vendedor, uc.nombre AS creado_por_nombre,
-                      ur.nombre AS resuelto_por_nombre, p.nro_prestamo
+                      ta.nombre AS tipo_asociado, v.nombre AS vendedor, uc.nombre AS creado_por_nombre,
+                      ur.nombre AS resuelto_por_nombre, p.nro_prestamo, rp.nombre AS reparticion
                  FROM solicitudes s
                  JOIN clientes c ON c.id_cliente = s.id_cliente
-                 JOIN productos pr ON pr.id_producto = s.id_producto
+                 JOIN tipos_asociado ta ON ta.id_tipo_asociado = s.id_tipo_asociado
+                 LEFT JOIN reparticiones rp ON rp.id_reparticion = c.id_reparticion
                  LEFT JOIN vendedores v ON v.id_vendedor = s.id_vendedor
                  LEFT JOIN usuarios uc ON uc.id_usuario = s.creado_por
                  LEFT JOIN usuarios ur ON ur.id_usuario = s.resuelto_por
@@ -143,7 +161,28 @@ function sol_buscar_cliente(string $id, string $txt): array
     return [];
 }
 
-/** Próximo número de solicitud: S-000001, S-000002… */
+/** ¿Está financiera_solicitudes_concurrencia.sql? (la versión y el número por año) */
+function sol_concurrencia_instalada(): bool
+{
+    return columna_existe('solicitudes', 'version') && columna_existe('numeradores', 'clave');
+}
+
+/**
+ * Número de una solicitud nueva: 2026-00000001. Sale de sp_numerador con
+ * bloqueo: hay que llamarla dentro de la transacción del alta (el número
+ * queda tomado hasta el COMMIT y, si se deshace, vuelve). El año es el de
+ * la base, el mismo de creado_el.
+ */
+function sol_nuevo_nro(): string
+{
+    $st = db()->prepare("CALL sp_numerador(CONCAT('SOL-', YEAR(NOW())), @sol_n)");
+    $st->execute();
+    $st->closeCursor();
+    $f = q1('SELECT YEAR(NOW()) AS anio, @sol_n AS n');
+    return sprintf('%04d-%08d', (int) $f['anio'], (int) $f['n']);
+}
+
+/** Próximo número sin el numerador (antes de correr el script): S-000001, S-000002… */
 function sol_proximo_nro(int $salto = 0): string
 {
     $f = q1("SELECT COALESCE(MAX(CAST(SUBSTRING(nro_solicitud, 3) AS UNSIGNED)), 0) AS n
@@ -168,9 +207,10 @@ function substr_utf8(string $s, int $largo): string
  * de $set (columna => valor). Devuelve false si ya no estaba en $desde
  * (otro la resolvió antes): en ese caso no cambia nada.
  */
-function sol_transicion(int $id, array $desde, string $hacia, array $set = []): bool
+function sol_transicion(int $id, array $desde, string $hacia, array $set = [], ?int $version = null): bool
 {
-    $cols = 'estado = ?';
+    $conVersion = columna_existe('solicitudes', 'version');
+    $cols = 'estado = ?' . ($conVersion ? ', version = version + 1' : '');
     $par = [$hacia];
     foreach ($set as $c => $v) {
         $cols .= ', ' . $c . ' = ' . ($v === 'NOW()' ? 'NOW()' : '?');
@@ -178,10 +218,107 @@ function sol_transicion(int $id, array $desde, string $hacia, array $set = []): 
             $par[] = $v;
         }
     }
-    $st = db()->prepare('UPDATE solicitudes SET ' . $cols . ' WHERE id_solicitud = ? AND estado IN ('
-                        . implode(',', array_fill(0, count($desde), '?')) . ')');
-    $st->execute(array_merge($par, [$id], $desde));
+    $w = 'id_solicitud = ? AND estado IN (' . implode(',', array_fill(0, count($desde), '?')) . ')';
+    $pw = array_merge([$id], $desde);
+    if ($conVersion && $version !== null) {
+        $w .= ' AND version = ?';
+        $pw[] = $version;
+    }
+    $st = db()->prepare('UPDATE solicitudes SET ' . $cols . ' WHERE ' . $w);
+    $st->execute(array_merge($par, $pw));
     return $st->rowCount() === 1;
+}
+
+/**
+ * Por qué no se aplicó un cambio de estado: otra persona la resolvió, o
+ * cambió (la modificaron, la volvieron a controlar) mientras se miraba.
+ */
+function sol_por_que_no(int $id, array $desde): string
+{
+    $f = q1('SELECT estado FROM solicitudes WHERE id_solicitud = ?', [$id]);
+    if ($f && in_array($f['estado'], $desde, true)) {
+        return 'La solicitud cambió mientras la mirabas (la modificaron o la volvieron a controlar): revisala de nuevo antes de decidir.';
+    }
+    return 'Otra persona la resolvió recién (está ' . strtolower(ESTADOS_SOLICITUD[$f['estado'] ?? ''] ?? 'cambiada') . '). Recargá la pantalla.';
+}
+
+/**
+ * Las otras solicitudes del cliente que todavía no son un préstamo:
+ * pendientes, observadas y aprobadas sin liquidar. En el alta se lee
+ * después de bloquear al cliente y en READ COMMITTED (sol_grabar_bloqueando):
+ * ve también la que otro grabó un instante antes.
+ */
+function sol_en_curso(int $idCliente, int $excluir = 0): array
+{
+    return q("SELECT s.id_solicitud, s.nro_solicitud, s.estado, s.id_tipo_asociado, s.monto, s.plazo, s.valor_cuota, s.creado_el,
+                     u.nombre AS creado_por_nombre
+                FROM solicitudes s
+                LEFT JOIN usuarios u ON u.id_usuario = s.creado_por
+               WHERE s.id_cliente = ? AND s.id_solicitud <> ? AND s.estado IN ('PENDIENTE', 'OBSERVADA', 'APROBADA')
+               ORDER BY s.id_solicitud", [$idCliente, $excluir]);
+}
+
+/** Entre las en curso, una igual (mismo tipo de asociado, monto y cuotas) que todavía espera decisión. */
+function sol_igual(array $enCurso, int $tipo, float $monto, int $plazo): ?array
+{
+    foreach ($enCurso as $o) {
+        if (in_array($o['estado'], ['PENDIENTE', 'OBSERVADA'], true) && (int) $o['id_tipo_asociado'] === $tipo
+            && abs((float) $o['monto'] - round($monto, 2)) < 0.005 && (int) $o['plazo'] === $plazo) {
+            return $o;
+        }
+    }
+    return null;
+}
+
+/**
+ * Los controles de las otras solicitudes en curso, para sumar a los de la
+ * simulación: IGUAL (bloqueo) si hay una igual sin resolver, y EN_CURSO
+ * (advertencia) con las demás y la cuota / ingreso si se dieran todas.
+ * $nueva: es una solicitud que todavía no se grabó.
+ */
+function sol_controles_en_curso(array $cliente, array $enCurso, int $tipo, float $monto, int $plazo,
+                                float $valorCuota, bool $nueva): array
+{
+    $ctl = [];
+    $quien = function (array $o): string {
+        return $o['nro_solicitud'] . ' (' . strtolower(ESTADOS_SOLICITUD[$o['estado']] ?? $o['estado'])
+             . ', cargada el ' . date('d/m/Y H:i', strtotime($o['creado_el']))
+             . ($o['creado_por_nombre'] ? ' por ' . $o['creado_por_nombre'] : '') . ')';
+    };
+    $igual = sol_igual($enCurso, $tipo, $monto, $plazo);
+    if ($igual) {
+        $ctl[] = ['c' => 'IGUAL', 'n' => 'bloqueo',
+                  't' => 'Ya está cargada la solicitud ' . $quien($igual) . ' con el mismo tipo de asociado, monto y cuotas. '
+                       . ($nueva ? 'Si es la misma operación, no hace falta cargarla de nuevo; si es otra, cambiá algún dato.'
+                                 : 'Si es la misma operación, anulá una de las dos.')];
+    }
+    $otras = array_values(array_filter($enCurso, function ($o) use ($igual) {
+        return !$igual || (int) $o['id_solicitud'] !== (int) $igual['id_solicitud'];
+    }));
+    if ($otras) {
+        $txt = (count($otras) === 1 ? 'Tiene otra solicitud en curso: ' : 'Tiene ' . count($otras) . ' solicitudes en curso: ')
+             . implode('; ', array_map(function ($o) use ($quien) {
+                   return $quien($o) . ', ' . money($o['monto']) . ' en ' . (int) $o['plazo'] . ' cuotas de ' . money($o['valor_cuota']);
+               }, $otras)) . '.';
+        $ingreso = (float) ($cliente['ingreso_mensual'] ?? 0);
+        if (($cliente['tipo'] ?? '') === 'F' && $ingreso > 0) {
+            $vig = q1("SELECT COALESCE(SUM(valor_cuota), 0) AS cuotas FROM prestamos WHERE id_cliente = ? AND estado = 'VIGENTE'",
+                      [(int) $cliente['id_cliente']]);
+            $total = (float) $vig['cuotas'] + array_sum(array_map(function ($o) { return (float) $o['valor_cuota']; }, $otras)) + $valorCuota;
+            $max = (float) parametro('CONTROL_CUOTA_INGRESO_MAX', '0.30');
+            $rel = $total / $ingreso;
+            $txt .= ' Si se dan todas, las cuotas suman ' . money($total) . ' = ' . pct($rel, 1) . ' del ingreso'
+                  . ($rel > $max ? ', más del ' . pct($max, 0) . ' permitido.' : '.');
+        }
+        $ctl[] = ['c' => 'EN_CURSO', 'n' => 'advertencia', 't' => $txt];
+    }
+    return $ctl;
+}
+
+/** Los controles sin los de otras solicitudes en curso (para volver a ponerlos actualizados). */
+function sol_controles_sin_en_curso(array $ctl): array
+{
+    return array_values(array_filter($ctl, function ($c) { return !in_array($c['c'] ?? '', ['IGUAL', 'EN_CURSO'], true); }));
 }
 
 /** Los controles guardados (JSON) como lista. */
@@ -356,10 +493,10 @@ function sol_instructivo_pdf(): void
     $rep->lista([
         'Menú Créditos > Solicitudes > «Nueva solicitud». También desde la ficha del cliente.',
         'Escribí el CUIT, CUIL o DNI del cliente y tocá «Buscar».',
-        ['Elegí el producto y escribí el monto que pide y la cantidad de cuotas.', 'Debajo del producto dice entre cuántas cuotas y qué montos admite.'],
+        ['Elegí el tipo de asociado y escribí el monto que pide y la cantidad de cuotas.', 'Debajo del tipo de asociado dice entre cuántas cuotas y qué montos admite.'],
         ['Completá el destino del préstamo y las observaciones.', 'Todo lo que le sirva a quien autoriza: antigüedad laboral, si ya fue cliente, referencias.'],
         ['Tocá «Revisar».', 'Vas a ver la cuota estimada, los controles (BCRA, mora, relación cuota / ingreso) y la documentación que falta.'],
-        ['Tocá «Enviar a autorización».', 'Queda con un número (S-000001) y en estado Pendiente. Si hay un control en rojo, no se puede enviar.'],
+        ['Tocá «Enviar a autorización».', 'Queda con un número (2026-00000001) y en estado Pendiente. Si hay un control en rojo, no se puede enviar.'],
     ], 'n');
 
     $rep->seccion('4. Documentación que hay que pedirle al cliente');
