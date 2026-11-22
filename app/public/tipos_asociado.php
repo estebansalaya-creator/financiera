@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/comisiones_escalas.php';
+require __DIR__ . '/../inc/gastos.php';
 
 // ---------------------------------------------------------------------
 // Tipos de asociado y tasas (configuración; antes «productos»)
@@ -14,6 +15,9 @@ require __DIR__ . '/../inc/comisiones_escalas.php';
 //   tipos_asociado.php?id=N&solapa=escalas    sus escalas de comisión
 //                                             (&escala=M o &escala=nueva)
 //   tipos_asociado.php?id=N&solapa=excepciones  los vendedores que cobran distinto
+//   tipos_asociado.php?id=N&solapa=gastos     sus gastos al liquidar (&gasto=M
+//                                             o &gasto=nuevo; &copiar=1: traer
+//                                             los de otro tipo)
 // El tipo de asociado (NACION, REGGIO DC, HABERES ACTIVOS…, los de las
 // planillas de comisiones) define los plazos y montos, la tasa y la
 // comisión del vendedor. El cliente tiene uno habitual y cada solicitud y
@@ -28,7 +32,7 @@ require __DIR__ . '/../inc/comisiones_escalas.php';
 
 const DESTINATARIOS = ['AMBOS' => 'Personas y empresas', 'F' => 'Personas físicas', 'J' => 'Empresas'];
 
-const SOLAPAS_TIPO = ['datos', 'tasas', 'escalas', 'excepciones'];
+const SOLAPAS_TIPO = ['datos', 'tasas', 'escalas', 'gastos', 'excepciones'];
 
 $errores = [];
 $id      = (int) get_str('id');
@@ -75,6 +79,7 @@ function monto_campo($n): string
 // ---------------------------------------------------------------------
 $form = null;          // lo cargado, para volver a mostrarlo si hay errores
 $escalaForm = null;    // ídem, la escala de comisión
+$gastoForm = null;     // ídem, el gasto del tipo
 if (es_post()) {
     csrf_exigir();
     $accion = post_str('accion');
@@ -89,7 +94,6 @@ if (es_post()) {
             'monto_min'       => post_str('monto_min'),
             'monto_max'       => post_str('monto_max'),
             'alicuota_iva'    => post_str('alicuota_iva'),
-            'gasto_otorg_pct' => post_str('gasto_otorg_pct'),
             'activo'          => isset($_POST['activo']) ? 1 : 0,
         ];
         $pmin = leer_num($form['plazo_min']);
@@ -97,7 +101,6 @@ if (es_post()) {
         $mmin = leer_num($form['monto_min']) ?? 0.0;
         $mmax = leer_num($form['monto_max']);
         $iva  = leer_num($form['alicuota_iva']);
-        $gst  = leer_num($form['gasto_otorg_pct']) ?? 0.0;
 
         if (!preg_match('/^[A-Z0-9_]{1,20}$/', $form['codigo'])) {
             $errores[] = 'El código va en mayúsculas, sin espacios, hasta 20 caracteres (letras, números y _).';
@@ -117,23 +120,20 @@ if (es_post()) {
         if ($iva === null || $iva < 0 || $iva > 100) {
             $errores[] = 'El IVA sobre intereses va en %, entre 0 y 100 (normalmente 21).';
         }
-        if ($gst < 0 || $gst > 100) {
-            $errores[] = 'Los gastos de otorgamiento van en %, entre 0 y 100.';
-        }
 
         if (!$errores) {
             $datos = [$form['codigo'], $form['nombre'], $form['destinatario'], (int) $pmin, (int) $pmax,
-                      round($mmin, 2), round($mmax, 2), round($iva / 100, 4), round($gst / 100, 4), $form['activo']];
+                      round($mmin, 2), round($mmax, 2), round($iva / 100, 4), $form['activo']];
             try {
                 if ($id > 0) {
                     q('UPDATE tipos_asociado SET codigo=?, nombre=?, destinatario=?, plazo_min=?, plazo_max=?, monto_min=?,
-                              monto_max=?, alicuota_iva=?, gasto_otorg_pct=?, activo=? WHERE id_tipo_asociado=?',
+                              monto_max=?, alicuota_iva=?, activo=? WHERE id_tipo_asociado=?',
                       array_merge($datos, [$id]));
                     flash('ok', 'Tipo de asociado ' . $form['codigo'] . ' guardado.');
                 } else {
                     q("INSERT INTO tipos_asociado (codigo, nombre, destinatario, plazo_min, plazo_max, monto_min, monto_max,
-                                                  alicuota_iva, gasto_otorg_pct, activo, sistema_amort)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,'FRANCES')", $datos);
+                                                  alicuota_iva, activo, sistema_amort)
+                       VALUES (?,?,?,?,?,?,?,?,?,'FRANCES')", $datos);
                     $id = (int) db()->lastInsertId();
                     flash('ok', 'Tipo de asociado ' . $form['codigo'] . ' creado. Ahora cargale las tasas y las escalas de comisión.');
                 }
@@ -215,6 +215,109 @@ if (es_post()) {
             flash('ok', $t['codigo'] . ($accion === 'activar_tipo' ? ' activado.' : ' desactivado: deja de ofrecerse al simular y al cargar solicitudes. Lo que ya tiene sigue igual.'));
         }
         redirigir($volver);
+    } elseif (strncmp($accion, 'gasto_', 6) === 0 && $id > 0) {
+        // Gastos del tipo: qué conceptos cobra y con qué valores.
+        $volverG = 'tipos_asociado.php?id=' . $id . '&solapa=gastos';
+        $idC = (int) post_str('id_concepto_gasto');
+        try {
+            if (!q1('SELECT 1 AS x FROM tipos_asociado WHERE id_tipo_asociado = ?', [$id])) {
+                flash('danger', 'El tipo de asociado ya no existe.');
+                redirigir('tipos_asociado.php');
+            }
+            $conc = $idC ? q1('SELECT * FROM gastos_conceptos WHERE id_concepto_gasto = ?', [$idC]) : null;
+            if ($accion === 'gasto_guardar') {
+                $nuevoG = post_str('nuevo') === '1';
+                $creaConc = $nuevoG && post_str('id_concepto_gasto') === 'nuevo';
+                [$txt, $val, $errG] = gc_valores_post();
+                $gastoForm = $txt + ['id_concepto_gasto' => $creaConc ? 'nuevo' : $idC, 'nuevo' => $nuevoG, 'activo' => post_str('activo') === '1' ? 1 : 0,
+                                     'nombre_nuevo' => trim(preg_replace('/\s+/u', ' ', post_str('nombre_nuevo'))),
+                                     'lleva_iva' => post_str('lleva_iva') === '1' ? 1 : 0, 'iva_txt' => post_str('alicuota_iva') ?: '21'];
+                if ($creaConc) {
+                    // Concepto nuevo del catálogo, creado desde acá (sus valores sugeridos son estos).
+                    $ivaN = leer_num($gastoForm['iva_txt']);
+                    if ($gastoForm['nombre_nuevo'] === '' || mb_strlen($gastoForm['nombre_nuevo']) > 100) {
+                        $errG[] = 'Escribí el nombre del concepto nuevo (hasta 100 caracteres).';
+                    } elseif (q1('SELECT 1 AS x FROM gastos_conceptos WHERE nombre = ?', [$gastoForm['nombre_nuevo']])) {
+                        $errG[] = 'Ya hay un concepto «' . $gastoForm['nombre_nuevo'] . '»: elegilo de la lista.';
+                    }
+                    if ($gastoForm['lleva_iva'] && ($ivaN === null || $ivaN <= 0 || $ivaN > 100)) {
+                        $errG[] = 'La alícuota de IVA va en %, entre 0 y 100 (normalmente 21).';
+                    }
+                    if (!$errG) {
+                        $cod = gc_codigo_de($gastoForm['nombre_nuevo']);
+                        $baseCod = substr($cod, 0, 26);
+                        for ($i = 2; q1('SELECT 1 AS x FROM gastos_conceptos WHERE codigo = ?', [$cod]); $i++) {
+                            $cod = $baseCod . '_' . $i;
+                        }
+                        q('INSERT INTO gastos_conceptos (codigo, nombre, tipo_calculo, valor, importe_minimo, importe_maximo, forma_cobro,
+                                                        lleva_iva, alicuota_iva, creado_por) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                          [$cod, $gastoForm['nombre_nuevo'], $val['tipo_calculo'], $val['valor'], $val['importe_minimo'], $val['importe_maximo'],
+                           $val['forma_cobro'], $gastoForm['lleva_iva'], $gastoForm['lleva_iva'] ? round($ivaN / 100, 4) : 0.21, usuario_id()]);
+                        $idC = (int) db()->lastInsertId();
+                        $conc = q1('SELECT * FROM gastos_conceptos WHERE id_concepto_gasto = ?', [$idC]);
+                    }
+                } elseif (!$conc) {
+                    $errG[] = 'Elegí el concepto de gasto.';
+                } elseif ($nuevoG && q1('SELECT 1 AS x FROM gastos_conceptos_tipos WHERE id_concepto_gasto = ? AND id_tipo_asociado = ?', [$idC, $id])) {
+                    $errG[] = '«' . $conc['nombre'] . '» ya está en este tipo: editalo desde la lista.';
+                }
+                if ($errG) {
+                    $errores = array_merge($errores, $errG);
+                } else {
+                    q('INSERT INTO gastos_conceptos_tipos (id_concepto_gasto, id_tipo_asociado, tipo_calculo, valor, importe_minimo,
+                                                          importe_maximo, forma_cobro, activo, modificado_por)
+                       VALUES (?,?,?,?,?,?,?,?,?)
+                       ON DUPLICATE KEY UPDATE tipo_calculo = VALUES(tipo_calculo), valor = VALUES(valor),
+                            importe_minimo = VALUES(importe_minimo), importe_maximo = VALUES(importe_maximo),
+                            forma_cobro = VALUES(forma_cobro), activo = VALUES(activo), modificado_por = VALUES(modificado_por)',
+                      [$idC, $id, $val['tipo_calculo'], $val['valor'], $val['importe_minimo'], $val['importe_maximo'],
+                       $val['forma_cobro'], $gastoForm['activo'], usuario_id()]);
+                    flash('ok', '«' . $conc['nombre'] . '» ' . ($nuevoG ? 'agregado' : 'guardado') . ': ' . gc_valor_txt($val)
+                              . '. Vale para lo que se simule y liquide desde ahora.');
+                    redirigir($volverG);
+                }
+            } elseif (in_array($accion, ['gasto_activar', 'gasto_desactivar', 'gasto_quitar'], true) && $conc) {
+                if ($accion === 'gasto_quitar') {
+                    q('DELETE FROM gastos_conceptos_tipos WHERE id_concepto_gasto = ? AND id_tipo_asociado = ?', [$idC, $id]);
+                    flash('ok', '«' . $conc['nombre'] . '» ya no se cobra en este tipo. Los préstamos liquidados no cambian.');
+                } else {
+                    q('UPDATE gastos_conceptos_tipos SET activo = ?, modificado_por = ? WHERE id_concepto_gasto = ? AND id_tipo_asociado = ?',
+                      [$accion === 'gasto_activar' ? 1 : 0, usuario_id(), $idC, $id]);
+                    flash('ok', '«' . $conc['nombre'] . '» ' . ($accion === 'gasto_activar' ? 'vuelve a cobrarse en este tipo.' : 'deja de cobrarse en este tipo; los valores quedan guardados.'));
+                }
+                redirigir($volverG);
+            } elseif ($accion === 'gasto_copiar') {
+                $origen = (int) post_str('origen');
+                $modo = post_str('modo') === 'REEMPLAZAR' ? 'REEMPLAZAR' : 'AGREGAR';
+                $o = q1('SELECT codigo FROM tipos_asociado WHERE id_tipo_asociado = ?', [$origen]);
+                if (!$o || $origen === $id) {
+                    $errores[] = 'Elegí de qué otro tipo de asociado copiar los gastos.';
+                } else {
+                    $pdo = db();
+                    $pdo->beginTransaction();
+                    try {
+                        if ($modo === 'REEMPLAZAR') {
+                            q('DELETE FROM gastos_conceptos_tipos WHERE id_tipo_asociado = ?', [$id]);
+                        }
+                        $n = q('INSERT IGNORE INTO gastos_conceptos_tipos (id_concepto_gasto, id_tipo_asociado, tipo_calculo, valor, importe_minimo,
+                                                                          importe_maximo, forma_cobro, activo, modificado_por)
+                                SELECT id_concepto_gasto, ?, tipo_calculo, valor, importe_minimo, importe_maximo, forma_cobro, activo, ?
+                                  FROM gastos_conceptos_tipos WHERE id_tipo_asociado = ?', [$id, usuario_id(), $origen]);
+                        $pdo->commit();
+                    } catch (Throwable $e) {
+                        $pdo->rollBack();
+                        throw $e;
+                    }
+                    $cuantos = (int) q1('SELECT COUNT(*) AS n FROM gastos_conceptos_tipos WHERE id_tipo_asociado = ?', [$id])['n'];
+                    flash('ok', 'Gastos copiados de ' . $o['codigo'] . ($modo === 'REEMPLAZAR' ? ' (reemplazan a los que había)' : ' (los que ya tenía quedaron como estaban)')
+                              . '. Ahora tiene ' . $cuantos . ($cuantos === 1 ? ' gasto' : ' gastos') . ': cambiá los valores que sean distintos.');
+                    redirigir($volverG);
+                }
+            }
+        } catch (Throwable $e) {
+            $errores[] = $e instanceof PDOException && (int) ($e->errorInfo[1] ?? 0) === 1146
+                ? 'Falta crear las tablas de gastos: corré sql\\financiera_gastos.sql.' : mensaje_bd($e);
+        }
     } elseif (strncmp($accion, 'escala_', 7) === 0 && $id > 0) {
         try {
             $errores = escala_acciones($accion, $id, null, 'tipos_asociado.php?id=' . $id . '&solapa=escalas', $escalaForm);
@@ -282,6 +385,33 @@ try {
     }
 } catch (Throwable $e) {
     $errores[] = error_amigable($e);
+}
+
+// Gastos de cada tipo (solapa Gastos). Sin financiera_gastos.sql la tabla
+// no existe: queda null y no se muestra.
+$gastosTipo = null;      // id_tipo => gastos activos
+$gastos = [];            // los del tipo abierto, activos y no
+$conceptosLibres = [];   // conceptos activos que el tipo todavía no tiene
+$otrosTipos = [];        // de dónde se pueden copiar
+try {
+    $gastosTipo = [];
+    foreach (q('SELECT gt.*, g.nombre, g.lleva_iva, g.alicuota_iva FROM gastos_conceptos_tipos gt
+                  JOIN gastos_conceptos g ON g.id_concepto_gasto = gt.id_concepto_gasto
+                 WHERE gt.activo = 1 AND g.activo = 1 ORDER BY g.orden, g.nombre') as $g) {
+        $gastosTipo[(int) $g['id_tipo_asociado']][] = $g;
+    }
+    if ($tipo) {
+        $gastos = gastos_de_tipo($id);
+        $conceptosLibres = q('SELECT * FROM gastos_conceptos g WHERE g.activo = 1
+                                 AND NOT EXISTS (SELECT 1 FROM gastos_conceptos_tipos gt
+                                                  WHERE gt.id_concepto_gasto = g.id_concepto_gasto AND gt.id_tipo_asociado = ?)
+                               ORDER BY g.orden, g.nombre', [$id]);
+        $otrosTipos = q('SELECT t.id_tipo_asociado, t.codigo, t.nombre, COUNT(gt.id_concepto_gasto) AS n
+                           FROM tipos_asociado t JOIN gastos_conceptos_tipos gt ON gt.id_tipo_asociado = t.id_tipo_asociado
+                          WHERE t.id_tipo_asociado <> ? GROUP BY t.id_tipo_asociado ORDER BY t.activo DESC, t.nombre', [$id]);
+    }
+} catch (Throwable $e) {
+    $gastosTipo = null;
 }
 
 // ---------------------------------------------------------------------
@@ -363,7 +493,9 @@ if ($id === 0 && !$nuevo) {
               <td class="td-right" data-orden="<?= h($p['plazo_max']) ?>"><?= h($p['plazo_min']) ?> a <?= h($p['plazo_max']) ?> cuotas</td>
               <td class="td-right" data-orden="<?= h($p['monto_max']) ?>"><?= money($p['monto_min']) ?> a <?= money($p['monto_max']) ?>
                 <span class="segunda-linea">IVA s/int. <?= pct($p['alicuota_iva'], 0) ?></span></td>
-              <td class="td-right" data-orden="<?= h($p['gasto_otorg_pct']) ?>"><?= pct($p['gasto_otorg_pct']) ?></td>
+              <?php $gs = $gastosTipo[(int) $p['id_tipo_asociado']] ?? []; ?>
+              <td class="td-right" data-orden="<?= count($gs) ?>"<?= $gs ? ' title="' . h(gastos_tipo_txt($gs)) . '"' : '' ?>>
+                <?= $gastosTipo === null ? '<span class="td-muted">—</span>' : ($gs ? '<a href="tipos_asociado.php?id=' . (int) $p['id_tipo_asociado'] . '&amp;solapa=gastos">' . num(count($gs)) . (count($gs) === 1 ? ' gasto' : ' gastos') . '</a>' : '<span class="td-muted">sin gastos</span>') ?></td>
               <td class="td-right" data-orden="<?= h($p['tna_max'] ?? -1) ?>">
                 <?php if ($p['tna_min'] === null): ?>
                   <?= estado($p['n_tasas'] ? 'Rige más adelante' : 'Sin tasa', $p['activo'] ? 'warn' : 'neutro') ?>
@@ -406,10 +538,10 @@ $v = $form ?? ($tipo ? [
     'codigo' => $tipo['codigo'], 'nombre' => $tipo['nombre'], 'destinatario' => $tipo['destinatario'],
     'plazo_min' => $tipo['plazo_min'], 'plazo_max' => $tipo['plazo_max'],
     'monto_min' => monto_campo($tipo['monto_min']), 'monto_max' => monto_campo($tipo['monto_max']),
-    'alicuota_iva' => pct_campo($tipo['alicuota_iva']), 'gasto_otorg_pct' => pct_campo($tipo['gasto_otorg_pct']),
+    'alicuota_iva' => pct_campo($tipo['alicuota_iva']),
     'activo' => (int) $tipo['activo'],
 ] : ['codigo' => '', 'nombre' => '', 'destinatario' => 'AMBOS', 'plazo_min' => '1', 'plazo_max' => '60',
-     'monto_min' => '0', 'monto_max' => '', 'alicuota_iva' => '21', 'gasto_otorg_pct' => '0', 'activo' => 1]);
+     'monto_min' => '0', 'monto_max' => '', 'alicuota_iva' => '21', 'activo' => 1]);
 
 titulo($tipo ? $tipo['nombre'] : 'Nuevo tipo de asociado',
        $tipo ? 'Código ' . $tipo['codigo'] . ' · ' . num($tipo['n_clientes']) . ($tipo['n_clientes'] == 1 ? ' cliente' : ' clientes')
@@ -428,6 +560,8 @@ if ($tipo) {
         'datos'       => ['Datos', 'tipos_asociado.php?id=' . $id, null],
         'tasas'       => ['Tasas', 'tipos_asociado.php?id=' . $id . '&solapa=tasas', count($tasas)],
         'escalas'     => ['Escalas de comisión', 'tipos_asociado.php?id=' . $id . '&solapa=escalas', $vigentes($escalas)],
+        'gastos'      => ['Gastos', 'tipos_asociado.php?id=' . $id . '&solapa=gastos',
+                          count(array_filter($gastos, function ($g) { return (int) $g['activo'] && (int) $g['concepto_activo']; }))],
         'excepciones' => ['Excepciones de vendedores', 'tipos_asociado.php?id=' . $id . '&solapa=excepciones', count($excepciones)],
     ], $solapa);
 }
@@ -488,13 +622,17 @@ if (!$tipo || $solapa === 'datos'):
           <input id="alicuota_iva" name="alicuota_iva" value="<?= h($v['alicuota_iva']) ?>" inputmode="decimal" class="derecha" required>
           <span class="campo-ayuda">%</span>
         </div>
-        <div class="campo" style="--span:2">
-          <label for="gasto_otorg_pct">Gastos de otorgamiento</label>
-          <input id="gasto_otorg_pct" name="gasto_otorg_pct" value="<?= h($v['gasto_otorg_pct']) ?>" inputmode="decimal" class="derecha">
-          <span class="campo-ayuda">% del capital, se descuenta del desembolso</span>
-        </div>
       </div>
     </div>
+    <?php if ($gastosTipo !== null && $tipo): $gs = $gastosTipo[$id] ?? []; ?>
+    <div class="bloque">
+      <div class="bloque-titulo">Gastos que se cobran al liquidar</div>
+      <p class="campo-ayuda" style="margin:0">
+        <?= $gs ? h(gastos_tipo_txt($gs)) . '.' : 'Este tipo no cobra gastos.' ?>
+        Se cargan en la solapa <a href="tipos_asociado.php?id=<?= $id ?>&amp;solapa=gastos">Gastos</a>.
+      </p>
+    </div>
+    <?php endif; ?>
     <div class="form-acciones">
       <?= boton($tipo ? 'Guardar cambios' : 'Crear tipo de asociado', 'primary', null, 'guardar', true) ?>
     </div>
@@ -646,6 +784,166 @@ elseif ($solapa === 'escalas'):
                      'Sin escalas. Cargá la primera con «Nueva escala».') ?>
 </div>
 <?php
+// ── Solapa Gastos ────────────────────────────────────────────────────────
+elseif ($solapa === 'gastos'):
+    if ($gastosTipo === null):
+        alerta('Falta crear las tablas de gastos: corré sql\financiera_gastos.sql.', 'warning');
+    else:
+    $gSel = get_str('gasto');
+    $copiar = get_str('copiar') === '1' || (es_post() && post_str('accion') === 'gasto_copiar');
+    $gEdit = null;
+    if ($gastoForm !== null) {
+        $gEdit = $gastoForm;
+    } elseif ($gSel === 'nuevo') {
+        $c0 = $conceptosLibres[0] ?? null;
+        $gEdit = ($c0 ? gc_valores_campos($c0) : ['tipo_calculo' => 'PORCENTAJE', 'valor_txt' => '', 'minimo_txt' => '', 'maximo_txt' => '', 'forma_cobro' => 'DESCUENTO'])
+               + ['id_concepto_gasto' => $c0 ? (int) $c0['id_concepto_gasto'] : 'nuevo', 'nuevo' => true, 'activo' => 1,
+                  'nombre_nuevo' => '', 'lleva_iva' => 0, 'iva_txt' => '21'];
+    } elseif ($gSel !== '') {
+        foreach ($gastos as $g) {
+            if ((int) $g['id_concepto_gasto'] === (int) $gSel) {
+                $gEdit = gc_valores_campos($g) + ['id_concepto_gasto' => (int) $g['id_concepto_gasto'], 'nuevo' => false, 'activo' => (int) $g['activo']];
+            }
+        }
+    }
+    $volverG = 'tipos_asociado.php?id=' . $id . '&solapa=gastos';
+    $nombreDe = [];
+    foreach ($gastos as $g) {
+        $nombreDe[(int) $g['id_concepto_gasto']] = $g['nombre'];
+    }
+
+    if ($gEdit !== null):
+        $esNuevoG = !empty($gEdit['nuevo']);
+?>
+<form method="post" action="<?= h($volverG . ($esNuevoG ? '&gasto=nuevo' : '&gasto=' . (int) $gEdit['id_concepto_gasto'])) ?>" autocomplete="off">
+  <?= csrf_campo() ?>
+  <input type="hidden" name="accion" value="gasto_guardar">
+  <input type="hidden" name="nuevo" value="<?= $esNuevoG ? '1' : '0' ?>">
+  <div class="card">
+    <?= card_head($esNuevoG ? 'Agregar gasto a ' . $tipo['codigo'] : ($nombreDe[(int) $gEdit['id_concepto_gasto']] ?? 'Gasto') . ' en ' . $tipo['codigo'],
+                  'los valores valen solo para este tipo de asociado', boton('Volver', 'secondary', $volverG, 'volver', false, true)) ?>
+    <div class="bloque">
+      <div class="campos">
+        <?php if ($esNuevoG): ?>
+        <div class="campo" style="--span:4"><label for="id_concepto_gasto">Concepto <span class="req">*</span></label>
+          <select id="id_concepto_gasto" name="id_concepto_gasto" required>
+            <?php foreach ($conceptosLibres as $c): ?>
+              <option value="<?= (int) $c['id_concepto_gasto'] ?>" <?= (string) $c['id_concepto_gasto'] === (string) $gEdit['id_concepto_gasto'] ? 'selected' : '' ?>
+                      data-valores="<?= h(json_encode(gc_valores_campos($c), JSON_UNESCAPED_UNICODE)) ?>"><?= h($c['nombre']) ?><?= (int) $c['lleva_iva'] ? ' (+ IVA)' : '' ?></option>
+            <?php endforeach; ?>
+            <option value="nuevo" <?= $gEdit['id_concepto_gasto'] === 'nuevo' ? 'selected' : '' ?>>+ Concepto nuevo…</option>
+          </select>
+          <small class="campo-ayuda">propone los valores sugeridos del concepto</small></div>
+        <?php $nuevoConc = $gEdit['id_concepto_gasto'] === 'nuevo'; ?>
+        <div class="campo" style="--span:4" data-gc-nuevo<?= $nuevoConc ? '' : ' hidden' ?>><label for="nombre_nuevo">Nombre del concepto <span class="req">*</span></label>
+          <input id="nombre_nuevo" name="nombre_nuevo" value="<?= h($gEdit['nombre_nuevo'] ?? '') ?>" maxlength="100" placeholder="Sellado provincial">
+          <small class="campo-ayuda">se agrega al catálogo y queda disponible para los otros tipos</small></div>
+        <div class="campo" style="--span:2" data-gc-nuevo<?= $nuevoConc ? '' : ' hidden' ?>><label for="lleva_iva">IVA</label>
+          <select id="lleva_iva" name="lleva_iva"><?= opciones(['0' => 'No lleva', '1' => 'Lleva IVA'], (int) ($gEdit['lleva_iva'] ?? 0) ? '1' : '0') ?></select></div>
+        <div class="campo" style="--span:2" data-gc-nuevo<?= $nuevoConc ? '' : ' hidden' ?>><label for="alicuota_iva">Alícuota IVA</label>
+          <input id="alicuota_iva" name="alicuota_iva" value="<?= h($gEdit['iva_txt'] ?? '21') ?>" inputmode="decimal" class="derecha">
+          <small class="campo-ayuda">% (si lleva)</small></div>
+        <?php else: ?>
+          <input type="hidden" name="id_concepto_gasto" value="<?= (int) $gEdit['id_concepto_gasto'] ?>">
+        <?php endif; ?>
+        <?= gc_valores_html($gEdit) ?>
+        <div class="campo campo-boton" style="--span:2">
+          <label class="campo-check"><input type="checkbox" name="activo" value="1" <?= (int) $gEdit['activo'] ? 'checked' : '' ?>> Se cobra</label></div>
+      </div>
+      <p class="campo-ayuda" style="margin:8px 0 0">
+        <strong>Se descuenta del desembolso</strong>: el cliente recibe el monto menos el gasto. <strong>Se financia en las cuotas</strong>: se suma al capital del cuadro y se paga en las cuotas, con interés.
+        El % es sobre el monto pedido; si el concepto lleva IVA, se suma.
+      </p>
+    </div>
+    <div class="form-acciones"><?= boton($esNuevoG ? 'Agregar' : 'Guardar', 'primary', null, 'guardar', true) ?></div>
+  </div>
+</form>
+<?= gc_valores_js() ?>
+<?php if ($esNuevoG): ?>
+<script>
+(function () {
+  var sel = document.getElementById('id_concepto_gasto');
+  sel.addEventListener('change', function () {
+    var nuevo = sel.value === 'nuevo';
+    sel.form.querySelectorAll('[data-gc-nuevo]').forEach(function (e) { e.hidden = !nuevo; });
+    sel.form.nombre_nuevo.required = nuevo;
+    if (nuevo) { sel.form.nombre_nuevo.focus(); return; }
+    var v = JSON.parse(sel.options[sel.selectedIndex].dataset.valores || '{}'), f = sel.form;
+    f.tipo_calculo.value = v.tipo_calculo; f.valor.value = v.valor_txt; f.importe_minimo.value = v.minimo_txt;
+    f.importe_maximo.value = v.maximo_txt; f.forma_cobro.value = v.forma_cobro;
+    f.tipo_calculo.dispatchEvent(new Event('change'));
+  });
+})();
+</script>
+<?php endif; ?>
+<?php elseif ($copiar): ?>
+<form method="post" action="<?= h($volverG . '&copiar=1') ?>" autocomplete="off">
+  <?= csrf_campo() ?>
+  <input type="hidden" name="accion" value="gasto_copiar">
+  <div class="card">
+    <?= card_head('Copiar gastos de otro tipo', 'trae los mismos conceptos con sus valores; después cambiás los que sean distintos',
+                  boton('Volver', 'secondary', $volverG, 'volver', false, true)) ?>
+    <div class="bloque">
+      <?php if (!$otrosTipos): ?>
+        <p class="campo-ayuda" style="margin:0">Ningún otro tipo de asociado tiene gastos cargados todavía.</p>
+      <?php else: ?>
+      <div class="campos">
+        <div class="campo" style="--span:5"><label for="origen">Copiar de <span class="req">*</span></label>
+          <select id="origen" name="origen" required>
+            <option value="">Elegí…</option>
+            <?php foreach ($otrosTipos as $o): ?>
+              <option value="<?= (int) $o['id_tipo_asociado'] ?>" <?= (int) post_str('origen') === (int) $o['id_tipo_asociado'] ? 'selected' : '' ?>>
+                <?= h($o['nombre']) ?> (<?= num($o['n']) ?> <?= (int) $o['n'] === 1 ? 'gasto' : 'gastos' ?>)</option>
+            <?php endforeach; ?>
+          </select></div>
+        <div class="campo" style="--span:5"><label for="modo">Los que este tipo ya tiene</label>
+          <select id="modo" name="modo"><?= opciones(['AGREGAR' => 'Quedan como están (agrega los que faltan)', 'REEMPLAZAR' => 'Se reemplazan por los del otro tipo'], post_str('modo') ?: 'AGREGAR') ?></select></div>
+      </div>
+      <?php endif; ?>
+    </div>
+    <?php if ($otrosTipos): ?><div class="form-acciones"><?= boton('Copiar', 'primary', null, 'guardar', true) ?></div><?php endif; ?>
+  </div>
+</form>
+<?php endif; ?>
+
+<div class="card">
+  <?= card_head('Gastos de ' . $tipo['codigo'], 'lo que se le cobra al cliente al liquidar, con los valores de este tipo',
+                ($gEdit === null && !$copiar
+                   ? boton('Agregar gasto', 'primary', $volverG . '&gasto=nuevo', 'agregar', false, true)
+                     . ' ' . boton('Copiar de otro tipo', 'secondary', $volverG . '&copiar=1', 'descargar', false, true)
+                   : '')) ?>
+  <div class="data-table-wrap">
+    <table class="data-table" data-local data-unidad="gasto|gastos">
+      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Concepto</th><th class="th-right">Valor</th><th>Cómo se cobra</th>
+        <th class="th-right">IVA</th><th>Estado</th></tr></thead>
+      <tbody>
+      <?php if (!$gastos): ?>
+        <tr><td colspan="6" class="no-data">Este tipo no cobra gastos. Agregalos con «Agregar gasto» o traé los de otro tipo con «Copiar de otro tipo».</td></tr>
+      <?php endif; ?>
+      <?php foreach ($gastos as $g): $cid = (int) $g['id_concepto_gasto']; $cobra = (int) $g['activo'] && (int) $g['concepto_activo']; ?>
+        <tr class="<?= $cobra ? '' : 'fila-baja' ?>">
+          <td><div class="acciones">
+            <?= btn_accion('editar', $volverG . '&gasto=' . $cid, 'Editar los valores') ?>
+            <?= (int) $g['activo']
+                  ? accion_post($volverG, ['accion' => 'gasto_desactivar', 'id_concepto_gasto' => $cid], 'cerrar', 'Dejar de cobrarlo', '«' . $g['nombre'] . '» deja de cobrarse en ' . $tipo['codigo'] . '. Los valores quedan guardados.', 'borrar')
+                  : accion_post($volverG, ['accion' => 'gasto_activar', 'id_concepto_gasto' => $cid], 'ok', 'Volver a cobrarlo') ?>
+            <?= accion_post($volverG, ['accion' => 'gasto_quitar', 'id_concepto_gasto' => $cid], 'borrar', 'Quitar del tipo', 'Se quita «' . $g['nombre'] . '» de ' . $tipo['codigo'] . '. Los préstamos ya liquidados no cambian.', 'borrar') ?>
+          </div></td>
+          <td class="td-fuerte"><a href="<?= h($volverG . '&gasto=' . $cid) ?>"><?= h($g['nombre']) ?></a><span class="segunda-linea mono"><?= h($g['codigo']) ?></span></td>
+          <td class="td-right" data-orden="<?= h($g['valor']) ?>"><?= h(gc_valor_txt($g)) ?>
+            <span class="segunda-linea"><?= $g['tipo_calculo'] === 'FIJO' ? 'fijo por préstamo' : 'del capital' ?></span></td>
+          <td><?= $g['forma_cobro'] === 'FINANCIADO' ? estado('Financiado en las cuotas', 'info') : estado('Descuento del desembolso', 'neutro') ?></td>
+          <td class="td-right"><?= (int) $g['lleva_iva'] ? pct($g['alicuota_iva']) : '<span class="td-muted">no</span>' ?></td>
+          <td><?= !(int) $g['concepto_activo'] ? estado('Concepto inactivo', 'neutro') : ((int) $g['activo'] ? estado('Se cobra', 'ok') : estado('No se cobra', 'neutro')) ?></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+  <p class="campo-ayuda" style="margin:8px 16px 14px">Los conceptos (nombre e IVA) se cargan en <?= puede('gastos_conceptos.php') ? '<a href="gastos_conceptos.php">Conceptos de gasto</a>' : 'Conceptos de gasto' ?>. Cambiar un valor acá vale para lo que se simule y liquide desde ahora.</p>
+</div>
+<?php
+    endif;
 // ── Solapa Excepciones de vendedores ─────────────────────────────────────
 else:
 ?>

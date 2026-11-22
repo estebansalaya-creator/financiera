@@ -523,7 +523,7 @@ if ($modoForm):
     <div class="bloque">
       <div class="bcra-tarjetas">
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Cuota</span><strong><?= money($res['valor_cuota']) ?></strong><span class="bcra-tarjeta-sub">capital + interés + IVA</span></div>
-        <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Neto a desembolsar</span><strong><?= money($res['neto_desembolso']) ?></strong><span class="bcra-tarjeta-sub">gastos <?= money($res['gastos_otorg']) ?></span></div>
+        <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Neto a desembolsar</span><strong><?= money($res['neto_desembolso']) ?></strong><span class="bcra-tarjeta-sub">gastos descontados <?= money($res['gastos_otorg']) ?><?= (float) ($res['gastos_financiados'] ?? 0) > 0 ? ' · financiados en las cuotas ' . money($res['gastos_financiados']) : '' ?></span></div>
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Total a pagar</span><strong><?= money($res['total_a_pagar']) ?></strong><span class="bcra-tarjeta-sub">intereses <?= money($res['total_intereses']) ?> · IVA <?= money($res['total_iva']) ?></span></div>
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Tasa</span><strong><?= pct($res['tna']) ?> TNA</strong><span class="bcra-tarjeta-sub">TEA <?= pct($res['tea']) ?></span></div>
       </div>

@@ -48,7 +48,9 @@ function prestamo_proximo_nro(int $salto = 0): string
 
 /**
  * Simula con sp_simular_prestamo (el mismo motor que la liquidación).
- * Devuelve [resumen, cuadro]. Lanza la excepción de la base si no se puede.
+ * Devuelve [resumen, cuadro, gastos]: gastos es el detalle de los conceptos
+ * de gasto (vacío si la base todavía no tiene financiera_gastos.sql).
+ * Lanza la excepción de la base si no se puede.
  */
 function prestamo_simular(int $idProducto, float $capital, int $plazo, string $fecha, ?string $primerVto): array
 {
@@ -57,10 +59,65 @@ function prestamo_simular(int $idProducto, float $capital, int $plazo, string $f
     $res = $st->fetch();
     $st->nextRowset();
     $cuadro = $st->fetchAll();
+    $gastos = [];
+    if ($st->nextRowset() && $st->columnCount() > 0) {
+        $gastos = $st->fetchAll();
+    }
     while ($st->nextRowset()) {
     }
     $st->closeCursor();
-    return [$res, $cuadro];
+    $res += ['gastos_financiados' => 0, 'capital_financiado' => $res['capital'] ?? 0];
+    return [$res, $cuadro, $gastos];
+}
+
+/** Cómo se calculó un gasto: «fijo» o «1,5 % s/$ 500.000,00». */
+function gasto_calculo_txt(array $g): string
+{
+    return $g['tipo_calculo'] === 'FIJO' ? 'fijo'
+         : rtrim(rtrim(number_format((float) $g['valor'] * 100, 4, ',', '.'), '0'), ',') . ' % s/' . money($g['base']);
+}
+
+/**
+ * Detalle de gastos (de la simulación o de prestamos_gastos) como tabla.
+ * $titulo vacío: sin encabezado de bloque.
+ */
+function gastos_detalle_html(array $gastos, string $titulo = 'Gastos'): string
+{
+    if (!$gastos) {
+        return '';
+    }
+    $filas = '';
+    $tot = ['DESCUENTO' => 0.0, 'FINANCIADO' => 0.0];
+    foreach ($gastos as $g) {
+        $tot[$g['forma_cobro']] = ($tot[$g['forma_cobro']] ?? 0) + (float) $g['total'];
+        $calc = gasto_calculo_txt($g);
+        $filas .= '<tr><td>' . h($g['nombre']) . '<span class="segunda-linea">' . h($calc) . '</span></td>'
+                . '<td>' . ($g['forma_cobro'] === 'FINANCIADO' ? estado('En las cuotas', 'info') : estado('Se descuenta', 'neutro')) . '</td>'
+                . '<td class="td-right">' . money($g['importe']) . '</td>'
+                . '<td class="td-right">' . ((float) $g['iva'] ? money($g['iva']) : '<span class="td-muted">—</span>') . '</td>'
+                . '<td class="td-right td-fuerte">' . money($g['total']) . '</td></tr>';
+    }
+    $pie = [];
+    if ($tot['DESCUENTO'] > 0) {
+        $pie[] = 'descontado del desembolso ' . money($tot['DESCUENTO']);
+    }
+    if ($tot['FINANCIADO'] > 0) {
+        $pie[] = 'financiado en las cuotas ' . money($tot['FINANCIADO']);
+    }
+    return ($titulo !== '' ? '<div class="bloque-titulo">' . h($titulo) . '</div>' : '')
+         . '<div class="data-table-wrap"><table class="data-table"><thead><tr><th>Concepto</th><th>Cómo se cobra</th>'
+         . '<th class="th-right">Importe</th><th class="th-right">IVA</th><th class="th-right">Total</th></tr></thead><tbody>'
+         . $filas . '</tbody><tfoot><tr><td colspan="5" class="td-right chico">' . h(implode(' · ', $pie)) . '</td></tr></tfoot></table></div>';
+}
+
+/** Los gastos cobrados en un préstamo ([] si no hay o falta la tabla). */
+function prestamo_gastos(int $idPrestamo): array
+{
+    try {
+        return q('SELECT * FROM prestamos_gastos WHERE id_prestamo = ? ORDER BY id_prestamo_gasto', [$idPrestamo]);
+    } catch (Throwable $e) {
+        return [];
+    }
 }
 
 /**

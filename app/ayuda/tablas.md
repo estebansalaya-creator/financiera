@@ -31,9 +31,9 @@ Con **Usar el logo como ícono de la app** tildado, el logo es también el ícon
 
 El tipo de asociado (NACION, REGGIO DC, HABERES ACTIVOS…, los de las planillas de comisiones) define con qué límites, qué tasa y qué comisión se presta. El cliente tiene uno habitual y cada solicitud y préstamo guarda el suyo. Sin una tasa vigente, un tipo no se puede simular ni liquidar; sin escala de comisión, sus préstamos no generan comisión. El listado avisa los dos casos.
 
-Cada tipo de asociado tiene: plazo mínimo y máximo (cuotas), monto mínimo y máximo, IVA sobre intereses y gastos de otorgamiento (un % del capital que se descuenta del desembolso). El listado muestra además la TNA y la comisión vigentes, y cuántos clientes y préstamos tiene; se busca por código o nombre y se filtra por estado.
+Cada tipo de asociado tiene: plazo mínimo y máximo (cuotas), monto mínimo y máximo, IVA sobre intereses. Los gastos que se le cobran al cliente se cargan en la solapa **Gastos** de cada tipo. El listado muestra además cuántos gastos cobra, la TNA y la comisión vigentes, y cuántos clientes y préstamos tiene; se busca por código o nombre y se filtra por estado.
 
-- El lápiz abre la ficha del tipo, con cuatro solapas: **Datos**, **Tasas**, **Escalas de comisión** y **Excepciones**. Al crear un tipo nuevo, la ficha sigue en *Tasas* para cargar la primera.
+- El lápiz abre la ficha del tipo, con cinco solapas: **Datos**, **Tasas**, **Escalas de comisión**, **Gastos** y **Excepciones**. Al crear un tipo nuevo, la ficha sigue en *Tasas* para cargar la primera.
 - La cruz lo **desactiva**: deja de ofrecerse en clientes, solicitudes y préstamos; lo que ya lo tiene lo conserva. El tilde lo vuelve a activar.
 - **Eliminar** (tacho) solo aparece si ningún cliente, solicitud ni préstamo lo usa; se borra con sus tasas y escalas.
 
@@ -90,6 +90,27 @@ Las reparticiones de las planillas de comisiones (ANSES MINIMA 0 a 9, ANSES MAXI
 - La lista se filtra por organismo y por estado, y busca por nombre. *Clientes* dice cuántos la tienen y abre el listado de clientes filtrado; *En planillas*, en cuántos renglones de las planillas de comisiones figura.
 - La cruz la **deshabilita**: deja de ofrecerse en la ficha del cliente; los clientes que la tienen la conservan.
 - **Eliminar** (tacho) solo aparece si ningún cliente la tiene y no figura en las planillas.
+
+### Gastos del tipo de asociado
+
+Qué gastos se le cobran al cliente al liquidar un préstamo de este tipo, y con qué valores. Dos tipos pueden cobrar el mismo concepto con distinto % o importe.
+
+- **Agregar gasto**: se elige un concepto del catálogo y propone sus valores sugeridos, que se pueden cambiar.
+- **Se calcula como**: *importe fijo* ($ por préstamo) o *% del capital* (sobre el monto pedido), con importe mínimo y máximo opcionales.
+- **Cómo se cobra**: *se descuenta del desembolso* (el cliente recibe el monto menos el gasto; las cuotas no cambian) o *se financia en las cuotas* (se suma al capital del cuadro y se paga en las cuotas, con interés).
+- **Copiar de otro tipo**: trae los gastos de otro tipo con sus valores; después se cambian los que sean distintos. Los que el tipo ya tenía pueden quedar como estaban o reemplazarse.
+- La cruz deja de cobrarlo sin perder los valores; el tacho lo quita del tipo.
+- Los cambios valen para lo que se simule y liquide desde ese momento: el préstamo guarda los gastos con los que se liquidó.
+- La comisión del vendedor no se calcula sobre los gastos financiados; con base *neto desembolsado*, se restan los descontados.
+
+## Conceptos de gasto
+<!-- pantallas: gastos_conceptos.php -->
+<!-- resumen: El catálogo de gastos de los préstamos: nombre, IVA y valores sugeridos. -->
+
+El catálogo de gastos que se le pueden cobrar al cliente (sellado, seguro, gastos administrativos…). Cada concepto tiene su nombre, si lleva IVA (y la alícuota) y los **valores sugeridos**, que se proponen al agregarlo a un tipo de asociado. Qué tipos lo cobran, y con qué valor cada uno, se carga en la solapa *Gastos* del tipo; la lista lo muestra en *Lo cobran*.
+
+- Desactivar un concepto deja de cobrarlo en todos los tipos (sus valores quedan guardados).
+- **Eliminar** solo aparece si nunca se cobró en un préstamo; lo quita también de los tipos.
 
 ## Documentación requerida
 <!-- pantallas: documentos_tipos.php -->

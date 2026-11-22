@@ -176,7 +176,8 @@ function buscar_prestamos(string $txt, int $limite = 20): array
 }
 
 /** Tipos de movimiento como se muestran. */
-const TIPOS_MOVIMIENTO = ['DESEMBOLSO' => 'Desembolso', 'GASTO_OTORG' => 'Gastos de otorgamiento', 'PAGO' => 'Pago',
+const TIPOS_MOVIMIENTO = ['DESEMBOLSO' => 'Desembolso', 'GASTO_OTORG' => 'Gastos descontados del desembolso',
+                          'GASTO_FINANC' => 'Gastos financiados en las cuotas', 'PAGO' => 'Pago',
                           'ANULACION_PAGO' => 'Anulación de pago', 'PUNITORIO' => 'Punitorio', 'IVA_PUNITORIO' => 'IVA punitorio',
                           'QUITA_INTERES' => 'Quita de interés', 'QUITA_IVA' => 'Quita de IVA',
                           'CREDITO_CAPITAL' => 'Interés adelantado a capital', 'ANULACION' => 'Anulación', 'AJUSTE' => 'Ajuste'];

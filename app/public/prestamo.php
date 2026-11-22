@@ -33,7 +33,7 @@ if (es_post() && post_str('accion') === 'anular') {
 }
 
 $p = null;
-$cuotas = $pagos = $movs = $comisiones = [];
+$cuotas = $pagos = $movs = $comisiones = $gastosPre = [];
 $hoy = null;
 $cancelacion = null;
 try {
@@ -49,6 +49,7 @@ try {
         $cuotas = q('SELECT * FROM v_cuotas_saldo WHERE id_prestamo = ? ORDER BY nro_cuota', [$id]);
         $pagos  = q('SELECT * FROM pagos WHERE id_prestamo = ? ORDER BY fecha DESC, id_pago DESC', [$id]);
         $movs   = q('SELECT * FROM movimientos WHERE id_prestamo = ? ORDER BY fecha, id_movimiento', [$id]);
+        $gastosPre = prestamo_gastos($id);
         $comisiones = q('SELECT d.*, l.estado AS liq_estado FROM comisiones_devengadas d
                            LEFT JOIN comisiones_liquidacion l ON l.id_liquidacion = d.id_liquidacion
                           WHERE d.id_prestamo = ? ORDER BY d.fecha, d.id_devengada', [$id]);
@@ -88,7 +89,19 @@ if ($p && get_str('export') === 'pdf') {
     $tea = pow(1 + (float) $p['tna'] / 12, 12) - 1;
     $rep->nota('Liquidado el ' . fecha($p['fecha_liquidacion']) . ' · primer vencimiento ' . fecha($p['fecha_primer_vto'])
              . ' · TNA ' . pct($p['tna']) . ' · TEA ' . pct($tea) . ' · IVA sobre intereses ' . pct($p['alicuota_iva'], 0)
-             . ' · gastos de otorgamiento ' . money($p['gastos_otorg']));
+             . ' · gastos descontados ' . money($p['gastos_otorg'])
+             . ((float) ($p['gastos_financiados'] ?? 0) > 0 ? ' · gastos financiados en las cuotas ' . money($p['gastos_financiados']) : ''));
+    if ($gastosPre) {
+        $rep->seccion('Gastos', 'congelados al liquidar');
+        $rep->tabla(
+            [['Concepto', 3.2, 'L'], ['Cálculo', 2.2, 'L'], ['Cómo se cobró', 2.2, 'L'], ['Importe', 1.5, 'R'], ['IVA', 1.2, 'R'], ['Total', 1.5, 'R']],
+            array_map(function ($g) {
+                return [$g['nombre'], gasto_calculo_txt($g), $g['forma_cobro'] === 'FINANCIADO' ? 'En las cuotas' : 'Descontado',
+                        money($g['importe']), money($g['iva']), ['t' => money($g['total']), 'negrita' => true]];
+            }, $gastosPre),
+            ['Total', '', '', '', '', money(array_sum(array_column($gastosPre, 'total')))]
+        );
+    }
     $rep->seccion('Cuadro de cuotas', 'sistema francés');
     $rep->tabla(
         [['N°', 0.5, 'R'], ['Vencimiento', 1.1, 'L'], ['Capital', 1.2, 'R'], ['Interés', 1.2, 'R'], ['IVA', 1, 'R'],
@@ -162,7 +175,7 @@ mensajes($errores);
       <dt>Liquidación</dt><dd><?= h(fecha($p['fecha_liquidacion'])) ?> · primer vencimiento <?= h(fecha($p['fecha_primer_vto'])) ?></dd>
       <dt>Tasas</dt><dd>TNA <?= pct($p['tna']) ?> · TEA <?= pct(pow(1 + (float) $p['tna'] / 12, 12) - 1) ?> · punitoria <?= pct($p['tasa_punitoria']) ?> · IVA <?= pct($p['alicuota_iva'], 0) ?></dd>
       <?php $ctaDes = !empty($p['id_cuenta_fondos']) ? q1('SELECT id_cuenta_fondos, nombre FROM cuentas_fondos WHERE id_cuenta_fondos = ?', [(int) $p['id_cuenta_fondos']]) : null; ?>
-      <dt>Desembolso</dt><dd><?= money($p['neto_desembolso']) ?> (gastos de otorgamiento <?= money($p['gastos_otorg']) ?>)<?php if ($ctaDes): ?>
+      <dt>Desembolso</dt><dd><?= money($p['neto_desembolso']) ?> (gastos descontados <?= money($p['gastos_otorg']) ?>)<?php if ($ctaDes): ?>
         <span class="td-muted">· <?= h(strtolower(['TRANSFERENCIA' => 'Transferencia', 'CHEQUE' => 'Cheque', 'EFECTIVO' => 'Efectivo'][$p['medio_desembolso']] ?? (string) $p['medio_desembolso'])) ?>
         <?= $p['referencia_desembolso'] ? ($p['medio_desembolso'] === 'CHEQUE' ? 'N° ' : '') . h($p['referencia_desembolso']) . ' ' : '' ?>desde
         <?= puede('movimientos_fondos.php') ? '<a href="movimientos_fondos.php?cuenta=' . (int) $ctaDes['id_cuenta_fondos'] . '">' . h($ctaDes['nombre']) . '</a>' : h($ctaDes['nombre']) ?></span><?php endif; ?>
@@ -184,7 +197,15 @@ mensajes($errores);
           · <?= h($opTxt) ?><?= $opDes['nro_pago'] ? ' con el pago ' . h($opDes['nro_pago']) . ' del ' . h(fecha($opDes['fecha'])) . ', '
               . h(strtolower(['TRANSFERENCIA' => 'Transferencia', 'CHEQUE' => 'Cheque N° ' . $opDes['cheque_numero'], 'EFECTIVO' => 'Efectivo'][$opDes['medio']] ?? $opDes['medio'])) . ' desde ' . h($opDes['cuenta']) : '' ?></span>
         <?php endif; ?></dd>
-      <dt>Total a pagar</dt><dd><?= money((float) $p['capital'] + (float) $p['total_intereses'] + (float) $p['total_iva']) ?>
+      <?php if ($gastosPre): ?>
+      <dt>Gastos</dt><dd><?php foreach ($gastosPre as $g): ?><?= h($g['nombre']) ?> <?= money($g['total']) ?>
+          <span class="td-muted">(<?= h(gasto_calculo_txt($g)) ?><?= (float) $g['iva'] ? ', con IVA' : '' ?> · <?= $g['forma_cobro'] === 'FINANCIADO' ? 'en las cuotas' : 'descontado' ?>)</span><br><?php endforeach; ?></dd>
+      <?php endif; ?>
+      <?php if ((float) ($p['gastos_financiados'] ?? 0) > 0): ?>
+      <dt>Capital de las cuotas</dt><dd><?= money((float) $p['capital'] + (float) $p['gastos_financiados']) ?>
+        <span class="td-muted">(<?= money($p['capital']) ?> + gastos financiados <?= money($p['gastos_financiados']) ?>)</span></dd>
+      <?php endif; ?>
+      <dt>Total a pagar</dt><dd><?= money((float) $p['capital'] + (float) ($p['gastos_financiados'] ?? 0) + (float) $p['total_intereses'] + (float) $p['total_iva']) ?>
         <span class="td-muted">(intereses <?= money($p['total_intereses']) ?> · IVA <?= money($p['total_iva']) ?>)</span></dd>
       <dt>Vendedor</dt><dd><?= $p['vendedor'] ? h($p['vendedor']) : '<span class="td-muted">sin vendedor</span>' ?></dd>
       <dt>Comisión</dt><dd><?= $p['comision_monto'] !== null

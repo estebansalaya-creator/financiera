@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
+require __DIR__ . '/../inc/prestamos.php';
 
 // ---------------------------------------------------------------------
 // Simulador de préstamos
@@ -18,6 +19,7 @@ require __DIR__ . '/../inc/layout.php';
 $errores  = [];
 $res      = null;
 $cuadro   = [];
+$gastos   = [];
 $tipo = null;
 
 $fTipo   = (int) get_str('tipo');
@@ -95,14 +97,7 @@ try {
         }
         if (!$errores) {
             try {
-                $st = db()->prepare('CALL sp_simular_prestamo(?, ?, ?, ?, ?)');
-                $st->execute([$fTipo, round($monto, 2), (int) $plazo, $fecha, $primer]);
-                $res = $st->fetch();
-                $st->nextRowset();
-                $cuadro = $st->fetchAll();
-                while ($st->nextRowset()) {
-                }
-                $st->closeCursor();
+                [$res, $cuadro, $gastos] = prestamo_simular($fTipo, $monto, (int) $plazo, $fecha, $primer);
             } catch (Throwable $e) {
                 $errores[] = mensaje_bd($e);
                 $res = null;
@@ -133,8 +128,10 @@ if ($res && in_array($exp, ['pdf', 'xlsx'], true)) {
         ['Monto solicitado', money($res['capital'])],
         ['Plazo', (int) $res['plazo'] . ' cuotas mensuales'],
         ['Valor de la cuota (1ra)', money($res['valor_cuota'])],
-        ['Gastos de otorgamiento', money($res['gastos_otorg'])],
+        ['Gastos descontados del desembolso', money($res['gastos_otorg'])],
         ['Neto a recibir', money($res['neto_desembolso'])],
+        ['Gastos financiados en las cuotas', money($res['gastos_financiados'])],
+        ['Capital del cuadro', money($res['capital_financiado'])],
         ['Total de intereses', money($res['total_intereses'])],
         ['IVA sobre intereses', money($res['total_iva'])],
         ['Total a pagar', money($res['total_a_pagar'])],
@@ -160,6 +157,17 @@ if ($res && in_array($exp, ['pdf', 'xlsx'], true)) {
             ['TNA / TEA', pct($res['tna']) . ' / ' . pct($res['tea'])],
             ['CFT TEA c/IVA', $cft ? pct($cft['tea']) : '—'],
         ]);
+        if ($gastos) {
+            $rep->seccion('Gastos', 'descontados del desembolso o financiados en las cuotas');
+            $rep->tabla(
+                [['Concepto', 3.2, 'L'], ['Cálculo', 2.2, 'L'], ['Cómo se cobra', 2.2, 'L'], ['Importe', 1.5, 'R'], ['IVA', 1.2, 'R'], ['Total', 1.5, 'R']],
+                array_map(function ($g) {
+                    return [$g['nombre'], gasto_calculo_txt($g), $g['forma_cobro'] === 'FINANCIADO' ? 'En las cuotas' : 'Se descuenta',
+                            money($g['importe']), money($g['iva']), ['t' => money($g['total']), 'negrita' => true]];
+                }, $gastos),
+                ['Total', '', '', '', '', money(array_sum(array_column($gastos, 'total')))]
+            );
+        }
         $rep->seccion('Cuadro de cuotas', 'sistema francés · IVA ' . pct($tipo['alicuota_iva'], 0) . ' sobre intereses');
         $rep->tabla(
             [['N°', 0.6, 'R'], ['Vencimiento', 1.4, 'L'], ['Capital', 1.6, 'R'], ['Interés', 1.5, 'R'],
@@ -168,11 +176,11 @@ if ($res && in_array($exp, ['pdf', 'xlsx'], true)) {
                 return [(string) $c['nro_cuota'], fecha($c['vencimiento']), money($c['capital']), money($c['interes']),
                         money($c['iva_interes']), ['t' => money($c['importe']), 'negrita' => true], money($c['saldo_capital'])];
             }, $cuadro),
-            ['', 'Total', money($res['capital']), money($res['total_intereses']), money($res['total_iva']),
+            ['', 'Total', money($res['capital_financiado']), money($res['total_intereses']), money($res['total_iva']),
              money($res['total_a_pagar']), '']
         );
         $rep->nota('Simulación sin valor contractual: las condiciones finales dependen de la aprobación crediticia y de la tasa vigente al liquidar.');
-        $rep->nota('Gastos de otorgamiento (' . pct($tipo['gasto_otorg_pct']) . ' del capital) descontados del desembolso. '
+        $rep->nota(($gastos ? 'Los gastos descontados se restan del monto que se recibe; los financiados se suman al capital de las cuotas. ' : '')
                    . 'CFT aproximado en períodos mensuales iguales.');
         $rep->enviar($nombreArchivo . '.pdf');
         exit;
@@ -190,6 +198,16 @@ if ($res && in_array($exp, ['pdf', 'xlsx'], true)) {
             }, $cuadro),
             [1 => ['texto' => 'Total'], 2 => ['suma' => true], 3 => ['suma' => true], 4 => ['suma' => true], 5 => ['suma' => true]]
         );
+    if ($gastos) {
+        $libro->hoja('Gastos')->titulo('Gastos del préstamo', money($res['capital']) . ' · ' . $tipo['nombre'])
+            ->tabla([['Concepto', 'texto', 30], ['Cálculo', 'texto', 26], ['Cómo se cobra', 'texto', 16], ['Importe', 'moneda', 15],
+                     ['IVA', 'moneda', 13], ['Total', 'moneda', 15]],
+                    array_map(function ($g) {
+                        return [$g['nombre'], gasto_calculo_txt($g), $g['forma_cobro'] === 'FINANCIADO' ? 'En las cuotas' : 'Se descuenta',
+                                $g['importe'], $g['iva'], $g['total']];
+                    }, $gastos),
+                    [0 => ['texto' => 'Total'], 3 => ['suma' => true], 4 => ['suma' => true], 5 => ['suma' => true]]);
+    }
     $libro->hoja('Resumen')->titulo('Simulación de préstamo', 'Generada el ' . date('d/m/Y H:i'))
         ->tabla([['Concepto', 'texto', 28], ['Valor', 'texto', 30]], $lineas);
     $libro->enviar($nombreArchivo . '.xlsx');
@@ -279,8 +297,12 @@ if ($tipos && count($sinTasa) === count($tipos)) {
     <?= card_head('Resumen') ?>
     <div class="datos">
       <div><div class="dato-lbl">Monto solicitado</div><div class="dato-val"><?= money($res['capital']) ?></div></div>
-      <div><div class="dato-lbl">Gastos de otorgamiento</div><div class="dato-val"><?= money($res['gastos_otorg']) ?></div></div>
+      <div><div class="dato-lbl">Gastos descontados</div><div class="dato-val"><?= money($res['gastos_otorg']) ?></div></div>
       <div><div class="dato-lbl">Neto a recibir</div><div class="dato-val"><?= money($res['neto_desembolso']) ?></div></div>
+      <?php if ((float) $res['gastos_financiados'] > 0): ?>
+      <div><div class="dato-lbl">Gastos financiados</div><div class="dato-val"><?= money($res['gastos_financiados']) ?></div></div>
+      <div><div class="dato-lbl">Capital de las cuotas</div><div class="dato-val"><?= money($res['capital_financiado']) ?></div></div>
+      <?php endif; ?>
       <div><div class="dato-lbl">Cuotas</div><div class="dato-val"><?= (int) $res['plazo'] ?> mensuales</div></div>
       <div><div class="dato-lbl">Total de intereses</div><div class="dato-val"><?= money($res['total_intereses']) ?></div></div>
       <div><div class="dato-lbl">IVA s/ intereses</div><div class="dato-val"><?= money($res['total_iva']) ?></div></div>
@@ -290,10 +312,17 @@ if ($tipos && count($sinTasa) === count($tipos)) {
       <div><div class="dato-lbl">CFT TEA c/IVA</div><div class="dato-val"><?= $cft ? pct($cft['tea']) : '—' ?></div></div>
     </div>
     <div class="bloque" style="border-top:1px solid var(--border)">
-      <p class="chico muted">Cada cuota incluye el IVA sobre sus intereses: como el interés baja mes a mes, la cuota total también baja un poco. Los gastos se descuentan del desembolso.
+      <p class="chico muted">Cada cuota incluye el IVA sobre sus intereses: como el interés baja mes a mes, la cuota total también baja un poco.
+        Los gastos descontados se restan de lo que se recibe; los financiados se suman al capital de las cuotas (y pagan interés).
         El CFT es aproximado (períodos mensuales iguales). Simulación sin valor contractual.</p>
     </div>
   </div>
+  <?php if ($gastos): ?>
+  <div class="card">
+    <?= card_head('Gastos', 'según los conceptos de gasto del tipo de asociado') ?>
+    <?= gastos_detalle_html($gastos, '') ?>
+  </div>
+  <?php endif; ?>
   <div class="card">
     <?= card_head('Cuadro de cuotas', 'sistema francés · ' . (int) $res['plazo'] . ' cuotas mensuales') ?>
     <div class="data-table-wrap">
@@ -326,7 +355,7 @@ if ($tipos && count($sinTasa) === count($tipos)) {
           <tr class="total-row">
             <td></td>
             <td>Total</td>
-            <td class="td-right"><?= money($res['capital']) ?></td>
+            <td class="td-right"><?= money($res['capital_financiado']) ?></td>
             <td class="td-right"><?= money($res['total_intereses']) ?></td>
             <td class="td-right"><?= money($res['total_iva']) ?></td>
             <td class="td-right"><?= money($res['total_a_pagar']) ?></td>

@@ -32,6 +32,7 @@ $aviso   = '';
 $cliente = null;
 $res     = null;
 $cuadro  = [];
+$gastos  = [];
 $ctl     = [];
 $revisado = false;
 $comEst  = null;      // la comisión que va a tocar, para mostrarla antes de liquidar
@@ -180,7 +181,7 @@ if (es_post() && in_array($accion, ['revisar', 'liquidar'], true) && !$errores) 
 
     if (!$errores) {
         try {
-            [$res, $cuadro] = prestamo_simular((int) $f['tipo'], $monto, (int) $plazo, $fecha, $primer);
+            [$res, $cuadro, $gastos] = prestamo_simular((int) $f['tipo'], $monto, (int) $plazo, $fecha, $primer);
             [$ctl] = prestamo_controles($cliente, (float) $res['valor_cuota']);
             $revisado = true;
             $comEst = comision_estimada((int) $f['vendedor'] ?: null, (int) $f['tipo'], (int) $plazo, round($monto, 2),
@@ -401,7 +402,7 @@ mensajes($errores);
     <div class="bloque">
       <div class="bcra-tarjetas">
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Cuota</span><strong><?= money($res['valor_cuota']) ?></strong><span class="bcra-tarjeta-sub">capital + interés + IVA</span></div>
-        <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Neto a desembolsar</span><strong><?= money($res['neto_desembolso']) ?></strong><span class="bcra-tarjeta-sub">gastos <?= money($res['gastos_otorg']) ?></span></div>
+        <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Neto a desembolsar</span><strong><?= money($res['neto_desembolso']) ?></strong><span class="bcra-tarjeta-sub">gastos descontados <?= money($res['gastos_otorg']) ?><?= (float) ($res['gastos_financiados'] ?? 0) > 0 ? ' · financiados en las cuotas ' . money($res['gastos_financiados']) : '' ?></span></div>
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Total a pagar</span><strong><?= money($res['total_a_pagar']) ?></strong><span class="bcra-tarjeta-sub">intereses <?= money($res['total_intereses']) ?> · IVA <?= money($res['total_iva']) ?></span></div>
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Tasas</span><strong><?= pct($res['tna']) ?> TNA</strong><span class="bcra-tarjeta-sub">TEA <?= pct($res['tea']) ?><?= $cft !== null ? ' · CFT con IVA ' . pct($cft) : '' ?></span></div>
         <?php if ($comEst): ?>
@@ -417,6 +418,7 @@ mensajes($errores);
         <?php endif; ?>
       </div>
     </div>
+    <?php if ($gastos): ?><div class="bloque"><?= gastos_detalle_html($gastos) ?></div><?php endif; ?>
     <div class="data-table-wrap">
       <table class="data-table" data-sin-orden>
         <thead><tr><th class="th-right" data-no-sort>N°</th><th data-no-sort>Vencimiento</th><th class="th-right" data-no-sort>Capital</th>
@@ -430,7 +432,7 @@ mensajes($errores);
             <td class="td-right"><?= money($c['saldo_capital']) ?></td></tr>
         <?php endforeach; ?>
         </tbody>
-        <tfoot><tr class="total-row"><td colspan="2">TOTAL</td><td class="td-right"><?= money($res['capital']) ?></td>
+        <tfoot><tr class="total-row"><td colspan="2">TOTAL</td><td class="td-right"><?= money($res['capital_financiado']) ?></td>
           <td class="td-right"><?= money($res['total_intereses']) ?></td><td class="td-right"><?= money($res['total_iva']) ?></td>
           <td class="td-right"><?= money($res['total_a_pagar']) ?></td><td></td></tr></tfoot>
       </table>
