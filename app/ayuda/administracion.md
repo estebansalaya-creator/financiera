@@ -55,6 +55,16 @@ Arma el árbol del menú: módulos (con ícono) y pantallas, hasta 4 niveles. Un
 
 El ícono de color se pega como SVG (los de Fluent UI, como en gestion_sindicato); si queda vacío se usa el ícono simple elegido.
 
+## Log de errores
+<!-- pantallas: admin_errores.php -->
+<!-- resumen: Qué falló en el sistema, en qué pantalla, a quién y cuándo. -->
+
+Cada error que se produce en una pantalla queda anotado con la fecha y hora, el usuario, la dirección y el error. Cuando a alguien una pantalla no le abre, ve «La pantalla no se pudo abrir» con un **código del error** (#123); los errores que la pantalla muestra en rojo («Ocurrió un error inesperado») también lo llevan. Con ese código se lo busca acá.
+
+Por defecto se ven los **pendientes de revisar**. El ojo abre el detalle (dirección, de qué pantalla venía, el renglón del código y la traza). **Marcar revisado** lo saca de pendientes, de a uno desde el detalle o tildando varios. Si el mismo error le pasa a la misma persona varias veces en menos de 5 minutos queda una sola fila con la cantidad de **veces**. Se guarda 180 días.
+
+No se anotan las validaciones ni las reglas del sistema («Escribí el motivo de la anulación», «ya existe…»), ni los «no tenés permiso». Nunca se guarda lo que se escribió en el formulario.
+
 ## El primer administrador
 <!-- resumen: Crear o destrabar un administrador desde la consola. -->
 

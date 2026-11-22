@@ -1206,3 +1206,23 @@ details.plegable[open] > summary .card-head-titulo::before { content: '▾ '; }
 .asignar-linea label { display: inline-flex; gap: 8px; align-items: center; font-size: .82rem; }
 .asignar-linea .filter-input { min-width: 190px; }
 .asignar-linea .campo-ayuda { flex-basis: 100%; margin: 0; }
+
+/* ---- Log de errores (admin_errores.php) y «La pantalla no se pudo abrir» (inc/log_errores.php) ---- */
+.data-table .mono, .dato-val.mono { font-family: var(--mono); }
+.data-table .nowrap { white-space: nowrap; }
+.data-table .celda-texto { white-space: normal; min-width: 220px; max-width: 520px; overflow-wrap: anywhere; }
+.data-table .col-check { width: 32px; text-align: center; }
+.dialogo-error { width: min(900px, calc(100vw - 24px)); }
+.dialogo-error .datos { padding-bottom: 8px; }
+.dato-ancho { grid-column: 1 / -1; }
+.dato-ancho .dato-val { overflow-wrap: anywhere; font-weight: 500; }
+.error-traza-lbl { padding: 0 20px 4px; }
+.error-traza { margin: 0 20px 12px; padding: 10px 12px; max-height: 320px; overflow: auto; font-family: var(--mono); font-size: .74rem;
+               line-height: 1.45; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; white-space: pre; }
+.dialogo-error .form-acciones { padding: 12px 20px 14px; }
+body.pagina-error { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.error-500 { max-width: 560px; padding: 28px 32px; }
+.error-500 h1 { margin: 0 0 8px; font-size: 1.35rem; color: var(--navy); }
+.error-500 p { margin: 0 0 14px; color: var(--text-muted); }
+.error-500 .error-500-codigo { font-family: var(--mono); font-size: 1.05rem; color: var(--text); font-weight: 600; }
+.error-500 .error-traza { margin: 0 0 14px; }

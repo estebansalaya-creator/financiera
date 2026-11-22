@@ -56,25 +56,40 @@ if (PHP_SAPI === 'cgi-fcgi' && (string) ini_get('error_log') === '') {
     unset($logDir);
 }
 
+// Log de errores (inc\log_errores.php): las excepciones sin atajar, los
+// errores fatales, los 500 y lo que pasa por error_amigable() quedan en la
+// tabla log_errores con el usuario, la URL y la hora. Se consulta en
+// Administración del Sistema › Log de errores.
+require_once __DIR__ . '/log_errores.php';
+if (PHP_SAPI !== 'cli') {
+    log_errores_instalar();
+}
+
+/** Una conexión nueva a la base (db() guarda la de la pantalla; el log de errores usa otra). */
+function db_conectar(): PDO
+{
+    $dsn = sprintf(
+        'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
+        cfg('db_host', '127.0.0.1'),
+        (int) cfg('db_port', 3306),
+        cfg('db_name', 'financiera')
+    );
+    return new PDO($dsn, cfg('db_user'), cfg('db_pass'), [
+        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES   => false,
+        // La base trabaja en hora argentina, igual que PHP: en Railway el servidor
+        // está en UTC y NOW() / CURDATE() darían tres horas (o un día) de más.
+        // PHP 8.5 declara obsoleta PDO::MYSQL_ATTR_INIT_COMMAND (y con IIS el aviso reemplaza la página): la nueva si existe.
+        (defined('Pdo\\Mysql::ATTR_INIT_COMMAND') ? \Pdo\Mysql::ATTR_INIT_COMMAND : PDO::MYSQL_ATTR_INIT_COMMAND) => "SET time_zone = '-03:00'",
+    ]);
+}
+
 function db(): PDO
 {
     static $pdo = null;
     if ($pdo === null) {
-        $dsn = sprintf(
-            'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-            cfg('db_host', '127.0.0.1'),
-            (int) cfg('db_port', 3306),
-            cfg('db_name', 'financiera')
-        );
-        $pdo = new PDO($dsn, cfg('db_user'), cfg('db_pass'), [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES   => false,
-            // La base trabaja en hora argentina, igual que PHP: en Railway el servidor
-            // está en UTC y NOW() / CURDATE() darían tres horas (o un día) de más.
-            // PHP 8.5 declara obsoleta PDO::MYSQL_ATTR_INIT_COMMAND (y con IIS el aviso reemplaza la página): la nueva si existe.
-            (defined('Pdo\\Mysql::ATTR_INIT_COMMAND') ? \Pdo\Mysql::ATTR_INIT_COMMAND : PDO::MYSQL_ATTR_INIT_COMMAND) => "SET time_zone = '-03:00'",
-        ]);
+        $pdo = db_conectar();
     }
     return $pdo;
 }
@@ -180,17 +195,23 @@ function url_con(array $cambios): string
 // Errores
 // ---------------------------------------------------------------------
 
-/** Mensaje de error para mostrar; el detalle técnico solo con debug = true. */
+/**
+ * Mensaje de error para mostrar; el detalle técnico solo con debug = true.
+ * El error queda en el Log de errores (salvo que sea una regla de negocio) y
+ * el mensaje lleva su código, para que quien lo vio pueda avisar cuál fue.
+ */
 function error_amigable(Throwable $e): string
 {
     error_log('[financiera] ' . $e->getMessage());
+    $id = log_error_aviso($e);
+    $codigo = $id ? ' (código del error: #' . $id . ')' : '';
     if (cfg('debug', false)) {
-        return $e->getMessage();
+        return $e->getMessage() . $codigo;
     }
     if ($e instanceof PDOException) {
-        return 'No se pudo consultar la base de datos. Revisá la conexión en config.php.';
+        return 'No se pudo consultar la base de datos. Revisá la conexión en config.php.' . $codigo;
     }
-    return 'Ocurrió un error inesperado.';
+    return 'Ocurrió un error inesperado.' . $codigo;
 }
 
 /**
@@ -224,6 +245,7 @@ function mensaje_bd(Throwable $e, array $duplicados = []): string
             // esta. 1205: esperó más de lo permitido a que otra terminara. En los
             // dos casos no se grabó nada y se puede volver a intentar.
             error_log('[financiera] ' . $m);
+            log_error_aviso($e);      // queda en el log para saber cuántas veces pasa
             return 'Otra persona estaba grabando lo mismo en ese momento y no se guardó nada. Probá de nuevo.';
         }
         if ($cod === 1452) {

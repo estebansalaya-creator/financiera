@@ -35,6 +35,7 @@ app\
     extractos.php      extractos bancarios: los formatos del BNA y del ICBC, control de cuenta, duplicados, importación
     ordenes_pago.php   órdenes de pago, pagos emitidos y el archivo de Interbanking (registros *U* y *M*, lotes)
     talonarios.php     talonarios: las reglas de gestion_adm (rango, último emitido, serie de ARCA, lado de la cuenta)
+    log_errores.php    log de errores: excepciones sin atajar, fatales, 500 y lo atajado por error_amigable() → tabla log_errores
     ayuda.php          los manuales: lectura de ayuda\*.md, sección de cada pantalla, Markdown simple, búsqueda
   ayuda\               los manuales de uso, uno por módulo (solo texto, Markdown)
   cron\
@@ -42,6 +43,7 @@ app\
   public\              lo único que sirve IIS
     login.php, logout.php, mi_clave.php   ingreso, salida y cambio de la contraseña propia
     admin_usuarios.php, admin_roles.php, admin_permisos.php, admin_menu.php   Administración del Sistema
+    admin_errores.php  Log de errores: pendientes, detalle con la traza y «marcar revisado»
     simulador.php, clientes.php, cliente.php, comisiones.php
     tipos_asociado.php   tipos de asociado (antes «productos»): límites, tasas y escalas de comisión
     productos.php        la dirección vieja: redirige a tipos_asociado.php
@@ -120,7 +122,8 @@ sesiones\             sesiones de PHP (config: sesion_dir)
 22. **Cobros en efectivo, Recibos emitidos y Subdiario:** corré `sql\financiera_menu_recibos_subdiario.sql` (después del paso 21): *Cobranzas › Cobrar* pasa a llamarse **Cobros en efectivo**, *Emisión de recibos* pasa a llamarse **Cobros bancarios**, *Cobranzas › Pagos y caja* pasa a llamarse **Recibos emitidos** (un renglón por recibo, como en gestion_adm), Cobros bancarios lleva su ícono y queda al lado, y *Tesorería › Movimientos de fondos* pasa a llamarse **Subdiario de cuentas de fondos**. Solo nombres, orden e ícono: los permisos quedan como estaban.
 23. **Tipos de asociado, reparticiones y escalas de comisión:** corré `sql\financiera_tipos_asociado.sql` (después del paso 22 y de `carga_comisiones_2026_06.sql`): `productos` pasa a llamarse `tipos_asociado` (y `id_producto` → `id_tipo_asociado` en préstamos, solicitudes, tasas, reglas y comisiones importadas), crea `organismos` (6) y `reparticiones` con las 27 de las planillas, cada una de su organismo, suma al cliente el tipo habitual y la repartición, convierte las reglas de comisión en escalas por tipo y monto con % normal y % con telemarketing (las diferencias por vendedor quedan como excepción) y **redefine** `fn_tasa_vigente`, `fn_comision_regla`, `sp_simular_prestamo` y `sp_liquidar_prestamo`. *Productos y tasas* pasa a ser **Tipos de asociado y tasas** (`tipos_asociado.php`) y se agregan **Organismos** y **Reparticiones** con los mismos permisos. Después de este no se vuelven a correr `financiera_nucleo.sql`, `financiera_fondos.sql`, `financiera_ordenes_pago.sql`, `financiera_tablas_temporales.sql` ni `financiera_telemarketing_comisiones.sql`: usan la tabla `productos`. Al final muestra las escalas, y los controles 8.2 y 8.3 tienen que dar cero filas.
 24. **Conceptos de gasto:** corré `sql\financiera_gastos.sql` (después del paso 23): crea `gastos_conceptos` (catálogo), `gastos_conceptos_tipos` (los gastos de cada tipo de asociado con sus valores) y `prestamos_gastos`, suma `prestamos.gastos_financiados`, pasa el % de gastos de otorgamiento de cada tipo de asociado (si había) al concepto *Gastos de otorgamiento* de ese tipo, agrega **Conceptos de gasto** al menú debajo de Tipos de asociado (mismos roles) y **redefine** `sp_simular_prestamo` y `sp_liquidar_prestamo`. Si se vuelve a correr `financiera_tipos_asociado.sql`, después hay que correr este.
-25. Abrí el sitio: pide ingresar y después entra a la primera pantalla del menú del usuario.
+25. **Log de errores:** corré `sql\financiera_log_errores.sql` (después del paso 9): la tabla `log_errores` y la opción *Log de errores* en Administración del Sistema, para los roles que tienen Usuarios. Desde ahí se ven las excepciones sin atajar, los errores fatales, los 500 y lo que las pantallas atajan con `error_amigable()`, con usuario, URL, hora y traza (`inc\log_errores.php`). Sin la tabla todo anda igual: el error queda solo en `documentos\logs\php_errores.log`.
+26. Abrí el sitio: pide ingresar y después entra a la primera pantalla del menú del usuario.
 
 **Datos de ejemplo — solo en una base de prueba:** `sql\financiera_datos_ejemplo.sql` (después del paso 23) **borra** clientes, solicitudes, préstamos, cobranzas, movimientos de fondos, órdenes de pago, extractos e inversiones, y carga 20 clientes, 20 préstamos de 3 a 60 cuotas con sus desembolsos y cobros, recibos (uno anulado), 6 aportes de inversores y 4 solicitudes sin liquidar, todo con los procedures del sistema. No se corre en Railway ni en una base con datos reales. Crea dos procedures y tablas `tmp_ej_*` que borra al final: hace falta un usuario con permiso para crearlos (el de la app no lo tiene).
 

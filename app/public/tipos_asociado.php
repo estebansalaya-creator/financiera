@@ -833,7 +833,8 @@ elseif ($solapa === 'gastos'):
             <?php endforeach; ?>
             <option value="nuevo" <?= $gEdit['id_concepto_gasto'] === 'nuevo' ? 'selected' : '' ?>>+ Concepto nuevo…</option>
           </select>
-          <small class="campo-ayuda">propone los valores sugeridos del concepto</small></div>
+          <small class="campo-ayuda"><?= $conceptosLibres ? 'propone los valores sugeridos del concepto'
+              : ($gastos ? 'este tipo ya tiene todos los conceptos del catálogo' : 'el catálogo de conceptos todavía está vacío') ?></small></div>
         <?php $nuevoConc = $gEdit['id_concepto_gasto'] === 'nuevo'; ?>
         <div class="campo" style="--span:4" data-gc-nuevo<?= $nuevoConc ? '' : ' hidden' ?>><label for="nombre_nuevo">Nombre del concepto <span class="req">*</span></label>
           <input id="nombre_nuevo" name="nombre_nuevo" value="<?= h($gEdit['nombre_nuevo'] ?? '') ?>" maxlength="100" placeholder="Sellado provincial">
