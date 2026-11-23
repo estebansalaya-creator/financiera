@@ -34,3 +34,9 @@ Thumbs.db
 
 # El mensaje del próximo commit (lo usa subir_github.bat y lo borra).
 mensaje_commit*.txt
+
+# Migración desde Reggio: catálogos y grillas reales, preguntas al cliente
+migracion/
+
+# Diagnóstico de PHP (solo para el servidor local)
+app/public/php_diag.php

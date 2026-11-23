@@ -10,7 +10,7 @@ Los cobros en efectivo se registran uno por uno en *Cobros en efectivo*, en lote
 Solo para lo que el cliente paga **en efectivo**. Lo que entra por el banco se emite en *Cobros bancarios* (desde el extracto) y lo de Rapipago, Pago Fácil y otras recaudadoras en *Importar lote*.
 
 1. *Cobranzas* → **Cobros en efectivo** (o **Cobrar en efectivo** en la ficha del préstamo).
-2. La grilla muestra los **préstamos vigentes con saldo a pagar**: préstamo, cliente, cuotas impagas (y cuántas vencidas), próximo vencimiento, **deuda vencida**, **a vencer** y total. Lo vencido es a hoy, sin los punitorios del día: el cobro los calcula a la fecha. Se busca por préstamo, cliente, CUIT o DNI, y se filtra por deuda (con cuotas vencidas o al día) y vendedor. Cada encabezado ordena; **Exportar a Excel** trae todo lo filtrado.
+2. La grilla muestra los **préstamos vigentes con saldo a pagar**: préstamo, cliente, cuotas impagas (y cuántas vencidas), próximo vencimiento, **deuda vencida**, **a vencer** y total. Lo vencido es a hoy, sin los punitorios del día: el cobro los calcula a la fecha. Se busca por préstamo, cliente, CUIT o DNI, y se filtra por deuda (con cuotas vencidas o al día) y comercializador. Cada encabezado ordena; **Exportar a Excel** trae todo lo filtrado.
 3. La flecha de cada renglón **muestra el detalle de las cuotas** con saldo (vencimiento, atraso, capital, interés, punitorios y saldo); el ojo abre el préstamo para cobrar.
 4. Arriba: deuda vencida (con punitorios), próxima cuota, deuda total y **cancelación total** con lo que se ahorra el cliente.
 5. *Fecha del cobro*: hoy por defecto. Si la cambiás, se recalcula todo (punitorios incluidos).
@@ -71,7 +71,7 @@ Muestra cómo se aplicó el recibo a las cuotas de cada préstamo (capital, inte
 *Cobranzas* → **Recibos emitidos** muestra un renglón por recibo, con los préstamos a los que se aplicó, de dónde salió (*Cobros en efectivo* —cobro manual—, un *lote* o *Cobros bancarios*) y la cuenta donde entró la plata. Es la consulta: para emitir están *Cobros en efectivo*, *Cobros bancarios* e *Importar lote*.
 
 - Arriba: los recibos vigentes del filtro, el importe cobrado, lo que salió del extracto bancario y los anulados (que no suman).
-- Filtros: búsqueda (cliente, CUIT, recibo, préstamo o referencia), fechas, medio, origen, vendedor, importe desde / hasta y estado (por defecto, los **vigentes**). Las fechas y los importes se aplican con **Filtrar**.
+- Filtros: búsqueda (cliente, CUIT, recibo, préstamo o referencia), fechas, medio, origen, comercializador, importe desde / hasta y estado (por defecto, los **vigentes**). Las fechas y los importes se aplican con **Filtrar**.
 - **Nº recibo exacto** (`00001-00000123`, o solo el número) busca ese recibo y nada más, esté como esté: los demás filtros no cuentan.
 - Cada encabezado ordena la grilla; **Exportar a Excel** trae todo lo filtrado, en el mismo orden.
 - El tacho **anula** el recibo pidiendo el motivo, y la grilla vuelve con los mismos filtros. Si alguno de sus préstamos tiene un pago posterior, el tacho aparece apagado y al pasar el mouse dice cuál: primero hay que anular ese.

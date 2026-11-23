@@ -882,6 +882,12 @@ a.bcra-tarjeta:hover { text-decoration: none; border-color: var(--blue); }
 /* El botón Mensajes de la barra de arriba (al lado de Ayuda), con el número
    de conversaciones sin leer en un círculo rojo sobre la esquina. */
 #btn-mensajes { position: relative; }
+/* Mensajes y Ayuda se distinguen de los demás botones de la barra: globo blanco,
+   Mensajes con letra negra y Ayuda con letra azul. */
+#btn-mensajes, #btn-ayuda { background: #fff; border-color: #fff; }
+#btn-mensajes { color: #1f2328; }
+#btn-ayuda    { color: var(--navy); }
+#btn-mensajes:hover, #btn-ayuda:hover { background: #e8f1fa; border-color: #e8f1fa; }
 /* En pantallas angostas, Mensajes y Ayuda quedan con el ícono solo (el nombre sigue en el title) */
 @media (max-width: 1000px) {
   #btn-mensajes .hb-texto, #btn-ayuda .hb-texto { display: none; }

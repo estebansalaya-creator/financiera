@@ -32,6 +32,10 @@ const PAGINAS_SIN_PERMISO = ['index.php', 'mi_clave.php', 'ayuda.php'];
 /** Pantalla => opciones de menú que la habilitan (cualquiera alcanza). */
 const PAGINAS_PERMISO = [
     'cliente.php'   => ['clientes.php'],
+    'arca.php'      => ['clientes.php'],      // «Consultar ARCA» de la ficha del cliente
+    'php_diag.php'  => ['admin_usuarios.php'], // diagnóstico de PHP (php.ini y extensiones)
+    // Tesorería › Bancos es la solapa de bancos de Cuentas de fondos.
+    'cuentas_fondos.php' => ['bancos.php'],
     'solicitud.php' => ['solicitudes.php', 'autorizaciones.php'],
     'documento.php' => ['clientes.php'],
     'prestamo.php'  => ['prestamos.php', 'cobrar.php', 'cobranzas.php', 'emision_recibos.php'],

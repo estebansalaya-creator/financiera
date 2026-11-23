@@ -7,7 +7,7 @@
 -- =====================================================================
 
 INSERT INTO financiera.menu (id_menu, padre_id, nombre, url, icono, orden, nivel, activo)
-VALUES (32, 30, 'Vendedores', 'vendedores.php', 'usuario', 2, 2, 1)
+VALUES (32, 30, 'Comercializadores', 'vendedores.php', 'usuario', 2, 2, 1)
 ON DUPLICATE KEY UPDATE padre_id = VALUES(padre_id), nombre = VALUES(nombre), url = VALUES(url),
                         orden = VALUES(orden), nivel = VALUES(nivel);
 

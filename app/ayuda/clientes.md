@@ -7,7 +7,7 @@ Cada cliente tiene una ficha con sus datos, su documentación, su consulta al BC
 <!-- pantallas: clientes.php -->
 <!-- resumen: Buscar, filtrar y abrir la ficha de un cliente. -->
 
-El listado busca por CUIT, DNI, nombre, razón social, CBU (los 22 números) o alias y filtra por tipo, estado, vendedor, tipo de asociado, repartición y documentación (*Completa* / *Incompleta*). El lápiz abre la ficha; **Nuevo cliente** da de alta uno.
+El listado busca por CUIT, DNI, nombre, razón social, CBU (los 22 números) o alias y filtra por tipo, estado, comercializador, tipo de asociado, repartición y documentación (*Completa* / *Incompleta*). El lápiz abre la ficha; **Nuevo cliente** da de alta uno.
 
 ## Dar de alta un cliente
 <!-- pantallas: cliente.php -->
@@ -18,7 +18,7 @@ El listado busca por CUIT, DNI, nombre, razón social, CBU (los 22 números) o a
 3. Escribí el **CUIT/CUIL**. Debajo aparece ✓ si el dígito verificador es correcto. Una persona empieza con 20, 23, 24 o 27; una empresa con 30, 33 o 34.
 4. Persona: apellido, nombres y DNI (se completa solo desde el CUIL y tiene que coincidir). Conviene cargar el **ingreso mensual**: se usa para controlar la relación cuota / ingreso al dar un préstamo.
 5. Empresa: razón social, tipo societario, actividad, facturación.
-6. Vendedor: el que trajo al cliente. Se propone al cargarle un préstamo.
+6. Comercializador: el que trajo al cliente. Se propone al cargarle un préstamo.
    **Tipo de asociado** (NACION, REGGIO DC, HABERES ACTIVOS…): el habitual del cliente. La solicitud lo trae elegido y se puede cambiar; cada solicitud y cada préstamo guarda el suyo, que es el que define la tasa y la comisión.
    **Repartición**: dónde cobra (ANSES MINIMA 7, IPS 123, MINISTERIO DE EDUCACION…), agrupadas por organismo. No depende del tipo de asociado. Se cargan en *Tablas y parámetros* → *Organismos* y *Reparticiones*.
 7. **Datos bancarios**: el CBU o CVU (22 números) y el alias de una cuenta a nombre del cliente, que es a donde se le transfiere el préstamo. Mientras se escribe el CBU, debajo dice de qué banco es (o que es una billetera virtual, si empieza con 000) o que los dígitos verificadores no coinciden. El alias va de 6 a 20 caracteres (letras sin ñ ni acentos, números, punto o guion) y queda en mayúsculas.

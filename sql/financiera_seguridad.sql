@@ -123,7 +123,7 @@ INSERT INTO roles (id_rol, nombre, descripcion, prioridad, activo) VALUES
   (3, 'Créditos',      'Clientes, BCRA, simulación y alta de préstamos',        50, 1),
   (4, 'Cobranzas',     'Cobros, recibos, lotes y consulta de préstamos',        40, 1),
   (5, 'Inversiones',   'Inversores, aportes, liquidaciones y cotizaciones',     40, 1),
-  (6, 'Vendedor',      'Simulador, clientes y consulta BCRA',                   10, 1)
+  (6, 'Comercializador', 'Simulador, clientes y consulta BCRA',                   10, 1)
 ON DUPLICATE KEY UPDATE
   nombre = VALUES(nombre), descripcion = VALUES(descripcion),
   prioridad = VALUES(prioridad), activo = VALUES(activo);
@@ -149,7 +149,7 @@ INSERT INTO menu (id_menu, padre_id, nombre, url, icono, orden, nivel, activo) V
   ( 23,   20, 'Importar lote',              'lote.php',           NULL, 3, 2, 1),
 
   ( 30, NULL, 'Comisiones',                 NULL, 'etiqueta',  4, 1, 1),
-  ( 31,   30, 'Comisiones de vendedores',   'comisiones.php',     NULL, 1, 2, 1),
+  ( 31,   30, 'Comisiones de comercializadores', 'comisiones.php',     NULL, 1, 2, 1),
 
   ( 40, NULL, 'Inversiones',                NULL, 'grafico',   5, 1, 1),
   ( 41,   40, 'Aportes',                    'inversiones.php',    NULL, 1, 2, 1),

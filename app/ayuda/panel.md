@@ -19,7 +19,7 @@ Los números de la financiera en un período: solicitudes, préstamos liquidados
 - El **gráfico** muestra lo liquidado y lo cobrado por día (por mes si el período pasa de dos meses). Pasando el mouse por una columna, o tocándola en el celular, se ven los importes.
 - **Solicitudes**: lo que pasó en el período (cargadas, aprobadas, observadas, rechazadas, anuladas, liquidadas), con el monto pedido. Abajo, la foto de hoy: cuántas esperan autorización, cuántas están observadas y cuántas aprobadas sin liquidar, y cuánto tardó en promedio la autorización de las resueltas en el período.
 - **Cobranzas**: lo cobrado por concepto (capital, interés, IVA, punitorios) y por medio de pago. Los pagos anulados se informan aparte y no suman.
-- **Préstamos liquidados por tipo de asociado**, con los gastos de otorgamiento, los intereses a cobrar y las comisiones; **Solicitudes por vendedor**; y la lista de los préstamos liquidados.
+- **Préstamos liquidados por tipo de asociado**, con los gastos de otorgamiento, los intereses a cobrar y las comisiones; **Solicitudes por comercializador**; y la lista de los préstamos liquidados.
 
 **Inversiones**
 

@@ -8,7 +8,7 @@ require __DIR__ . '/../inc/prestamos.php';
 // ---------------------------------------------------------------------
 // Préstamos: listado
 //   Paginado en el servidor, con filtros por estado, mora, tipo de asociado,
-//   vendedor y fecha de liquidación. El Excel trae todo el filtro.
+//   comercializador y fecha de liquidación. El Excel trae todo el filtro.
 //   Saldo de capital = capital - lo imputado a capital de pagos aplicados.
 //   La mora sale de v_mora_prestamos (cuotas vencidas impagas a hoy).
 // ---------------------------------------------------------------------
@@ -103,7 +103,7 @@ try {
         $libro->hoja('Préstamos')->titulo('Préstamos', ($hayFiltros ? 'Filtrado · ' : '') . num($tot['n']) . ' préstamos · generado el ' . date('d/m/Y H:i'))
             ->tabla(
                 [['N°', 'texto', 11], ['Liquidación', 'fecha', 12], ['Cliente', 'texto', 32], ['CUIT/CUIL', 'texto', 15],
-                 ['Tipo de asociado', 'texto', 20], ['Vendedor', 'texto', 20], ['Capital', 'moneda', 15], ['Cuotas', 'entero', 8],
+                 ['Tipo de asociado', 'texto', 20], ['Comercializador', 'texto', 20], ['Capital', 'moneda', 15], ['Cuotas', 'entero', 8],
                  ['Cuota', 'moneda', 14], ['TNA', 'pct', 9], ['Saldo de capital', 'moneda', 15],
                  ['Días de atraso', 'entero', 10], ['Deuda vencida', 'moneda', 15], ['Estado', 'texto', 12]],
                 array_map(function ($p) {
@@ -153,7 +153,7 @@ mensajes($errores);
       <select name="mora" class="filtro <?= $fMora !== '' ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(FILTRO_MORA, $fMora, 'Todos') ?></select></label>
     <label class="filtro-campo"><span class="filtro-lbl">Tipo de asociado</span>
       <select name="tipo" class="filtro <?= $fTipo ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(array_column($tipos, 'nombre', 'id_tipo_asociado'), $fTipo ?: '', 'Todos') ?></select></label>
-    <label class="filtro-campo"><span class="filtro-lbl">Vendedor</span>
+    <label class="filtro-campo"><span class="filtro-lbl">Comercializador</span>
       <select name="vendedor" class="filtro <?= $fVend ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $fVend ?: '', 'Todos') ?></select></label>
     <label class="filtro-campo"><span class="filtro-lbl">Desde</span>
       <input type="date" name="desde" value="<?= h($fDesde) ?>" class="filtro <?= $fDesde !== '' ? 'activo' : '' ?>"></label>

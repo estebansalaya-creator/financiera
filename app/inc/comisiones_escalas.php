@@ -3,11 +3,14 @@ declare(strict_types=1);
 
 // ---------------------------------------------------------------------
 // Escalas de comisión (tabla comision_reglas)
-//   - Cada escala es un tramo del monto del préstamo con su % de comisión y
-//     su % cuando la operación vino por telemarketing.
-//   - La general de un tipo de asociado no tiene vendedor y vale para
+//   - Cada escala es un tramo del monto del préstamo con su % de comisión y,
+//     opcional, su % cuando la operación vino por telemarketing. Si lo deja
+//     vacío, con telemarketing se cobra el % de la escala por la fracción del
+//     tipo de asociado (tipos_asociado.pct_telemarketing: 1 = el mismo,
+//     0,5 = la mitad), que se configura en la ficha del tipo.
+//   - La general de un tipo de asociado no tiene comercializador y vale para
 //     todos (tipos_asociado.php).
-//   - La excepción de un vendedor es la misma fila con su id_vendedor
+//   - La excepción de un comercializador es la misma fila con su id_vendedor
 //     (vendedores.php). Si cubre el tipo y el monto del préstamo, gana
 //     sobre la general: lo decide fn_comision_regla.
 //   - Al liquidar, el % queda guardado en el préstamo: cambiar una escala no
@@ -65,6 +68,28 @@ function escala_pct_txt($pct, $pctTm): string
     return $pctTm === null || (float) $pctTm === (float) $pct ? $p . ' · TM igual' : $p . ' · TM ' . escala_pct_campo($pctTm) . ' %';
 }
 
+/**
+ * El % que se cobra con telemarketing: el de la escala si lo tiene; si no,
+ * el % de la escala por la fracción del tipo de asociado.
+ */
+function escala_tm_efectivo($pct, $pctTm, $factorTipo): float
+{
+    if ($pctTm !== null && $pctTm !== '') {
+        return (float) $pctTm;
+    }
+    return round((float) $pct * (float) ($factorTipo ?? 1), 6);
+}
+
+/** Celda «% con telemarketing»: el propio de la escala, o el que sale del tipo (en gris). */
+function escala_tm_celda($pct, $pctTm, $factorTipo): string
+{
+    $tm = escala_tm_efectivo($pct, $pctTm, $factorTipo);
+    if ($pctTm !== null && $pctTm !== '') {
+        return h(escala_pct_campo($tm)) . ' %';
+    }
+    return '<span class="td-muted" title="Lo fija el tipo de asociado">' . h(escala_pct_campo($tm)) . ' % · del tipo</span>';
+}
+
 /** Una fila de la base con la forma del formulario (todo texto). */
 function escala_a_form(array $r): array
 {
@@ -77,13 +102,13 @@ function escala_a_form(array $r): array
 }
 
 /**
- * Las escalas de un tipo de asociado (las generales) o de un vendedor (sus
+ * Las escalas de un tipo de asociado (las generales) o de un comercializador (sus
  * excepciones), con cuántos préstamos se liquidaron con cada una.
  */
 function escalas_de(?int $idTipo, ?int $idVendedor, bool $conInactivas = true): array
 {
     $w = $idVendedor ? 'r.id_vendedor = ?' : 'r.id_vendedor IS NULL AND r.id_tipo_asociado = ?';
-    return q("SELECT r.*, t.codigo AS tipo_codigo, t.nombre AS tipo_nombre,
+    return q("SELECT r.*, t.codigo AS tipo_codigo, t.nombre AS tipo_nombre, t.pct_telemarketing,
                      (SELECT COUNT(*) FROM prestamos p WHERE p.id_comision_regla = r.id_regla) AS usos
                 FROM comision_reglas r
                 LEFT JOIN tipos_asociado t ON t.id_tipo_asociado = r.id_tipo_asociado
@@ -102,7 +127,7 @@ function escala_usos(int $idRegla): int
 
 /**
  * Las acciones de las escalas de una pantalla (la ficha del tipo de
- * asociado o la del vendedor). $idTipo: el de las generales; $idVendedor:
+ * asociado o la del comercializador). $idTipo: el de las generales; $idVendedor:
  * el de las excepciones (el tipo sale del formulario). $volver: la lista.
  * Devuelve los errores (si los hay, la pantalla vuelve a mostrar el
  * formulario con lo cargado en $form) o redirige.
@@ -163,7 +188,7 @@ function escala_acciones(string $accion, ?int $idTipo, ?int $idVendedor, string 
     }
     $ptm = $form['porcentaje_tm'] === '' ? null : leer_num($form['porcentaje_tm']);
     if ($form['porcentaje_tm'] !== '' && ($ptm === null || $ptm < 0 || $ptm > 100)) {
-        $err[] = 'El % con telemarketing va de 0 a 100 (vacío: el mismo).';
+        $err[] = 'El % con telemarketing va de 0 a 100 (vacío: lo fija el tipo de asociado).';
     }
     if (!isset(ESCALA_BASES[$form['base_calculo']])) {
         $err[] = 'Elegí sobre qué se calcula.';
@@ -187,7 +212,7 @@ function escala_acciones(string $accion, ?int $idTipo, ?int $idVendedor, string 
     }
 
     $codVend = $idVendedor ? (string) (q1('SELECT codigo FROM vendedores WHERE id_vendedor = ?', [$idVendedor])['codigo'] ?? '') : '';
-    $desc = mb_substr($tipo['codigo'] . ' - ' . ($idVendedor ? $codVend . ' (excepción)' : 'todos los vendedores') . ' - ' . escala_tramo_txt($md, $mh), 0, 120);
+    $desc = mb_substr($tipo['codigo'] . ' - ' . ($idVendedor ? $codVend . ' (excepción)' : 'todos los comercializadores') . ' - ' . escala_tramo_txt($md, $mh), 0, 120);
     $v = [$desc, (int) $tipo['id_tipo_asociado'], round($md, 2), round($mh, 2), round($p / 100, 6),
           $ptm === null ? null : round($ptm / 100, 6), $form['base_calculo'], $vd, $vh, $form['activo']];
     if ($idRegla) {
@@ -207,7 +232,7 @@ function escala_acciones(string $accion, ?int $idTipo, ?int $idVendedor, string 
 }
 
 /**
- * Otra escala activa del mismo alcance (general o del mismo vendedor, mismo
+ * Otra escala activa del mismo alcance (general o del mismo comercializador, mismo
  * tipo) que cubre los mismos montos en las mismas fechas: no se sabría cuál
  * usar. Devuelve el texto del choque o null.
  */
@@ -230,7 +255,7 @@ function escala_choque(array $e, int $excepto): ?string
 
 /**
  * El formulario de una escala (alta o edición), arriba de la lista.
- * $tipos (id => nombre) solo en las excepciones de un vendedor.
+ * $tipos (id => nombre) solo en las excepciones de un comercializador.
  */
 function escala_form(array $v, string $accionUrl, string $volver, ?array $tipos, string $titulo): string
 {
@@ -252,7 +277,7 @@ function escala_form(array $v, string $accionUrl, string $volver, ?array $tipos,
           . '<div class="campo" style="--span:2"><label for="esc_p">% comisión <span class="req">*</span></label>'
           . '<input id="esc_p" name="porcentaje" value="' . h((string) $v['porcentaje']) . '" inputmode="decimal" class="derecha" required placeholder="18"></div>'
           . '<div class="campo" style="--span:2"><label for="esc_ptm">% con telemarketing</label>'
-          . '<input id="esc_ptm" name="porcentaje_tm" value="' . h((string) $v['porcentaje_tm']) . '" inputmode="decimal" class="derecha" placeholder="el mismo"></div>'
+          . '<input id="esc_ptm" name="porcentaje_tm" value="' . h((string) $v['porcentaje_tm']) . '" inputmode="decimal" class="derecha" placeholder="del tipo"></div>'
           . '<div class="campo" style="--span:2"><label for="esc_base">Sobre</label>'
           . '<select id="esc_base" name="base_calculo">' . opciones(ESCALA_BASES, $v['base_calculo'] ?: 'CAPITAL') . '</select></div>'
           . '<div class="campo" style="--span:2"><label for="esc_vd">Rige desde <span class="req">*</span></label>'
@@ -270,7 +295,7 @@ function escala_form(array $v, string $accionUrl, string $volver, ?array $tipos,
 /**
  * La lista de escalas con la barra de todas las grillas. $base: la URL de
  * la lista (para editar se le suma &escala=N); $conTipo: la columna del
- * tipo de asociado (en las excepciones de un vendedor).
+ * tipo de asociado (en las excepciones de un comercializador).
  */
 function escalas_grilla(array $filas, string $base, bool $conTipo, string $unidad, string $vacio, string $filtros = '', bool $hayFiltro = false): string
 {
@@ -300,8 +325,8 @@ function escalas_grilla(array $filas, string $base, bool $conTipo, string $unida
               . '<td class="td-right" data-orden="' . h($e['monto_desde']) . '">' . money($e['monto_desde']) . '</td>'
               . '<td class="td-right" data-orden="' . h($e['monto_hasta']) . '">' . ((float) $e['monto_hasta'] >= ESCALA_MONTO_MAX ? '<span class="td-muted">sin tope</span>' : money($e['monto_hasta'])) . '</td>'
               . '<td class="td-right td-fuerte" data-orden="' . h($e['porcentaje']) . '">' . h(escala_pct_campo($e['porcentaje'])) . ' %</td>'
-              . '<td class="td-right" data-orden="' . h($e['porcentaje_tm'] ?? $e['porcentaje']) . '">'
-              . ($e['porcentaje_tm'] === null ? '<span class="td-muted">el mismo</span>' : h(escala_pct_campo($e['porcentaje_tm'])) . ' %') . '</td>'
+              . '<td class="td-right" data-orden="' . h(escala_tm_efectivo($e['porcentaje'], $e['porcentaje_tm'], $e['pct_telemarketing'] ?? 1)) . '">'
+              . escala_tm_celda($e['porcentaje'], $e['porcentaje_tm'], $e['pct_telemarketing'] ?? 1) . '</td>'
               . '<td>' . h(ESCALA_BASES[$e['base_calculo']] ?? $e['base_calculo']) . '</td>'
               . '<td data-orden="' . h($e['vigencia_desde']) . '">desde el ' . h(fecha($e['vigencia_desde']))
               . ($e['vigencia_hasta'] ? '<span class="segunda-linea">hasta el ' . h(fecha($e['vigencia_hasta'])) . '</span>' : '') . '</td>'
@@ -363,7 +388,7 @@ function escalas_huecos(array $escalas, float $min, float $max, ?string $fecha =
 /**
  * La comisión que tocaría al liquidar (el mismo cálculo que
  * sp_liquidar_prestamo): ['pct', 'monto', 'origen', 'id_regla'] o null si
- * no hay vendedor. origen: «manual», «excepción», «escala» o «sin escala».
+ * no hay comercializador. origen: «manual», «excepción», «escala» o «sin escala».
  */
 function comision_estimada(?int $idVendedor, int $idTipo, int $plazo, float $capital, float $gastos, string $fecha,
                            bool $telemarketing, ?float $manualPct = null): ?array
@@ -374,12 +399,14 @@ function comision_estimada(?int $idVendedor, int $idTipo, int $plazo, float $cap
     if ($manualPct !== null) {
         return ['pct' => $manualPct, 'monto' => round($capital * $manualPct, 2), 'origen' => 'manual', 'id_regla' => null];
     }
-    $r = q1('SELECT r.* FROM comision_reglas r WHERE r.id_regla = fn_comision_regla(?, ?, ?, ?, ?, ?)',
+    $r = q1('SELECT r.*, t.pct_telemarketing FROM comision_reglas r
+               LEFT JOIN tipos_asociado t ON t.id_tipo_asociado = r.id_tipo_asociado
+              WHERE r.id_regla = fn_comision_regla(?, ?, ?, ?, ?, ?)',
             [$idVendedor, $idTipo, $plazo, $capital, $fecha, $telemarketing ? 1 : 0]);
     if (!$r) {
         return ['pct' => null, 'monto' => null, 'origen' => 'sin escala', 'id_regla' => null];
     }
-    $pct = $telemarketing && $r['porcentaje_tm'] !== null ? (float) $r['porcentaje_tm'] : (float) $r['porcentaje'];
+    $pct = $telemarketing ? escala_tm_efectivo($r['porcentaje'], $r['porcentaje_tm'], $r['pct_telemarketing'] ?? 1) : (float) $r['porcentaje'];
     $base = $r['base_calculo'] === 'NETO_DESEMBOLSO' ? $capital - $gastos : $capital;
     return ['pct' => $pct, 'monto' => round($base * $pct, 2), 'origen' => $r['id_vendedor'] ? 'excepción' : 'escala',
             'id_regla' => (int) $r['id_regla']];

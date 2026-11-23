@@ -306,7 +306,7 @@ function importe_filtro(string $s): ?float
 function unidad_singular(string $u): string
 {
     $irregulares = ['órdenes' => 'orden', 'renglones' => 'renglón', 'solicitudes' => 'solicitud', 'inversores' => 'inversor',
-                    'vendedores' => 'vendedor', 'importaciones' => 'importación', 'cotizaciones' => 'cotización'];
+                    'vendedores' => 'vendedor', 'comercializadores' => 'comercializador', 'importaciones' => 'importación', 'cotizaciones' => 'cotización'];
     return $irregulares[$u] ?? (substr($u, -1) === 's' ? substr($u, 0, -1) : $u);
 }
 

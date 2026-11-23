@@ -19,7 +19,7 @@ const ETIQUETAS_USOS = [
     'comisiones_liquidacion' => 'liquidaciones de comisiones', 'inversiones' => 'aportes',
     'inversiones_liquidaciones' => 'liquidaciones de inversiones', 'inversores' => 'inversores',
     'lotes_cobranza' => 'lotes de cobranza', 'movimientos' => 'movimientos', 'pagos' => 'pagos',
-    'prestamos' => 'préstamos', 'vendedores' => 'vendedores',
+    'prestamos' => 'préstamos', 'vendedores' => 'comercializadores',
 ];
 
 /**

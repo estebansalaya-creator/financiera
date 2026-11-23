@@ -6,9 +6,9 @@ require __DIR__ . '/../inc/layout.php';
 
 // ---------------------------------------------------------------------
 // Liquidación de comisiones
-//   Sin vendedor: resumen por vendedor del período (la hoja "Resumen"
+//   Sin comercializador: resumen por comercializador del período (la hoja "Resumen"
 //   de la macro) + subtotales por % aplicado.
-//   Con vendedor: detalle de sus operaciones + subtotales por %.
+//   Con comercializador: detalle de sus operaciones + subtotales por %.
 //   Filtros: tipo de asociado, telemarketing, % comisión y búsqueda
 //   (apellido, nombre o repartición). Se aplican a todo, también al Excel.
 //   ?export=xlsx descarga lo que se está viendo en Excel, con autofiltro.
@@ -29,7 +29,7 @@ $resumen    = [];
 $detalle    = [];
 $subtotales = [];
 $tot        = ['registros' => 0, 'monto' => 0, 'comision' => 0, 'tm' => 0];
-// Datos bancarios del vendedor (para pagarle), con sql\financiera_datos_bancarios.sql.
+// Datos bancarios del comercializador (para pagarle), con sql\financiera_datos_bancarios.sql.
 $conBanco   = columna_existe('vendedores', 'cbu');
 $colBanco   = $conBanco ? 'v.cbu, v.alias_cbu' : 'NULL AS cbu, NULL AS alias_cbu';
 
@@ -42,7 +42,7 @@ if (strlen($fQ) > 60) {
     $fQ = substr($fQ, 0, 60);
 }
 
-/** Operaciones con nombre de vendedor, para el Excel y el PDF. */
+/** Operaciones con nombre de comercializador, para el Excel y el PDF. */
 function operaciones(string $where, array $params): array
 {
     return q(
@@ -183,7 +183,7 @@ try {
 
 $pctProm = (float) $tot['monto'] > 0 ? (float) $tot['comision'] / (float) $tot['monto'] : 0;
 
-/** Filtros activos (sin período ni vendedor), para mostrar y para el Excel. */
+/** Filtros activos (sin período ni comercializador), para mostrar y para el Excel. */
 $activos = [];
 if ($fTipo !== '') {
     $activos[] = 'Tipo: ' . $fTipo;
@@ -213,7 +213,7 @@ if (get_str('export') === 'xlsx' && $error === null && $periodo !== '') {
 
         if (!$vendedor) {
             $libro->hoja('Resumen')->titulo($titulo, $sub)->tabla(
-                [['Vendedor', 'texto', 26], ['Registros', 'entero', 11], ['Monto', 'moneda', 17],
+                [['Comercializador', 'texto', 26], ['Registros', 'entero', 11], ['Monto', 'moneda', 17],
                  ['Comisión', 'moneda', 16], ['% prom.', 'pct', 10], ['CBU / CVU', 'texto', 25], ['Alias', 'texto', 22],
                  ['Observación', 'texto', 60]],
                 array_map(function ($r) {
@@ -229,7 +229,7 @@ if (get_str('export') === 'xlsx' && $error === null && $periodo !== '') {
 
         $ops = operaciones($where, $params);
         $libro->hoja('Detalle')->titulo($titulo, $sub)->tabla(
-            [['Vendedor', 'texto', 24], ['Fecha', 'fecha', 12], ['Tipo de asociado', 'texto', 23],
+            [['Comercializador', 'texto', 24], ['Fecha', 'fecha', 12], ['Tipo de asociado', 'texto', 23],
              ['Apellido', 'texto', 16], ['Nombre', 'texto', 22], ['Repartición', 'texto', 26],
              ['Monto', 'moneda', 16], ['% comisión', 'pct', 11], ['Comisión', 'moneda', 16],
              ['Telemarketing', 'centro', 15]],
@@ -262,7 +262,7 @@ if (get_str('export') === 'xlsx' && $error === null && $periodo !== '') {
 }
 
 // ---------------------------------------------------------------------
-// PDF: lo mismo que la pantalla (resumen o detalle del vendedor), con los filtros
+// PDF: lo mismo que la pantalla (resumen o detalle del comercializador), con los filtros
 // ---------------------------------------------------------------------
 if (get_str('export') === 'pdf' && $error === null && $periodo !== '') {
     try {
@@ -284,9 +284,9 @@ if (get_str('export') === 'pdf' && $error === null && $periodo !== '') {
             $rep->nota('No hay operaciones con estos filtros.');
         } else {
             if (!$vendedor) {
-                $rep->seccion('Resumen por vendedor', count($resumen) . ' vendedores');
+                $rep->seccion('Resumen por comercializador', count($resumen) . ' comercializadores');
                 $rep->tabla(
-                    [['Vendedor', 2.4, 'L'], ['Registros', 0.9, 'R'], ['Monto', 1.7, 'R'], ['Comisión', 1.7, 'R'],
+                    [['Comercializador', 2.4, 'L'], ['Registros', 0.9, 'R'], ['Monto', 1.7, 'R'], ['Comisión', 1.7, 'R'],
                      ['% prom.', 1, 'R'], ['Observación', 8, 'L']],
                     array_map(function ($r) {
                         return [$r['vendedor'], num($r['registros']), money($r['monto']), money($r['comision']),
@@ -297,7 +297,7 @@ if (get_str('export') === 'pdf' && $error === null && $periodo !== '') {
                 );
             }
 
-            $rep->seccion('Subtotales por % aplicado', $vendedor ? 'de este vendedor' : 'todos los vendedores');
+            $rep->seccion('Subtotales por % aplicado', $vendedor ? 'de este comercializador' : 'todos los comercializadores');
             $rep->tabla(
                 [['% comisión', 1, 'R'], ['Registros', 1, 'R'], ['Monto', 1.6, 'R'], ['Comisión', 1.6, 'R']],
                 array_map(function ($s) {
@@ -352,7 +352,7 @@ layout_inicio('Comisiones', 'comisiones');
     <?php endif; ?>
     <?php if ($vendedor && $conBanco): ?>
       <p>Para pagarle: <?= datos_bancarios_html($vendedor['cbu'], $vendedor['alias_cbu'])
-          ?: 'sin CBU ni alias (se cargan en <a href="vendedores.php?edit=' . (int) $vendedor['id_vendedor'] . '">Vendedores</a>)' ?></p>
+          ?: 'sin CBU ni alias (se cargan en <a href="vendedores.php?edit=' . (int) $vendedor['id_vendedor'] . '">Comercializadores</a>)' ?></p>
     <?php endif; ?>
     <?php if ($hayFiltros): ?>
       <div class="filtros-activos"><span class="chip">Filtrado por <?= h(implode(' · ', $activos)) ?></span></div>
@@ -376,7 +376,7 @@ layout_inicio('Comisiones', 'comisiones');
         <?php endforeach; ?>
       </select>
     </label>
-    <label class="filtro-campo"><span class="filtro-lbl">Vendedor</span>
+    <label class="filtro-campo"><span class="filtro-lbl">Comercializador</span>
       <select name="vendedor" class="filtro" onchange="this.form.submit()">
         <option value="">Todos</option>
         <?php foreach ($vendedores as $v): ?>
@@ -442,14 +442,14 @@ layout_inicio('Comisiones', 'comisiones');
 
   <?php if (!$vendedor): ?>
   <div class="card">
-    <?= card_head('Resumen por vendedor', 'clic en un encabezado para ordenar') ?>
-    <?= barra_local('comisiones.php', 'Vendedor, CBU o alias…', '', false, null) ?>
+    <?= card_head('Resumen por comercializador', 'clic en un encabezado para ordenar') ?>
+    <?= barra_local('comisiones.php', 'Comercializador, CBU o alias…', '', false, null) ?>
     <div class="data-table-wrap">
-      <table class="data-table" data-local data-paginada data-unidad="vendedor|vendedores">
+      <table class="data-table" data-local data-paginada data-unidad="comercializador|comercializadores">
         <thead>
           <tr>
             <th class="col-acciones" data-no-sort>Acciones</th>
-            <th>Vendedor</th>
+            <th>Comercializador</th>
             <th class="th-right">Registros</th>
             <th class="th-right">Monto</th>
             <th class="th-right">Comisión</th>
@@ -463,8 +463,8 @@ layout_inicio('Comisiones', 'comisiones');
             <td>
               <div class="acciones">
                 <a class="btn-accion ver" href="<?= h(url_con(['vendedor' => $r['id_vendedor']])) ?>" title="Ver el detalle"><?= icono('ver') ?></a>
-                <a class="btn-accion pdf" href="<?= h(url_con(['vendedor' => $r['id_vendedor'], 'export' => 'pdf'])) ?>" target="_blank" rel="noopener" title="PDF del vendedor"><?= icono('pdf') ?></a>
-                <a class="btn-accion planilla" href="<?= h(url_con(['vendedor' => $r['id_vendedor'], 'export' => 'xlsx'])) ?>" title="Excel del vendedor"><?= icono('planilla') ?></a>
+                <a class="btn-accion pdf" href="<?= h(url_con(['vendedor' => $r['id_vendedor'], 'export' => 'pdf'])) ?>" target="_blank" rel="noopener" title="PDF del comercializador"><?= icono('pdf') ?></a>
+                <a class="btn-accion planilla" href="<?= h(url_con(['vendedor' => $r['id_vendedor'], 'export' => 'xlsx'])) ?>" title="Excel del comercializador"><?= icono('planilla') ?></a>
               </div>
             </td>
             <td class="td-fuerte"><a href="<?= h(url_con(['vendedor' => $r['id_vendedor']])) ?>"><?= h($r['vendedor']) ?></a>
@@ -495,7 +495,7 @@ layout_inicio('Comisiones', 'comisiones');
   <?php endif; ?>
 
   <div class="card">
-    <?= card_head('Subtotales por % aplicado', $vendedor ? 'de este vendedor' : 'todos los vendedores') ?>
+    <?= card_head('Subtotales por % aplicado', $vendedor ? 'de este comercializador' : 'todos los comercializadores') ?>
     <div class="data-table-wrap">
       <table class="data-table compacta">
         <thead>

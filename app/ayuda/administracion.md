@@ -13,11 +13,11 @@ Usuarios, roles, permisos y menú, y lo que necesita saber quien mantiene el sis
 | Rol inicial | Qué tiene |
 | --- | --- |
 | Administrador | Todo, incluida la Administración del Sistema |
-| Gerencia | Todo lo operativo (también Vendedores, Autorizaciones y Datos de la empresa), sin la Administración del Sistema |
+| Gerencia | Todo lo operativo (también Comercializadores, Autorizaciones y Datos de la empresa), sin la Administración del Sistema |
 | Créditos | Simulador, Solicitudes (todas), Liquidar préstamo, Préstamos, Clientes, Consulta BCRA, Recibos emitidos |
 | Cobranzas | Préstamos, Clientes, Cobros en efectivo, Recibos emitidos, Importar lote |
 | Inversiones | Aportes, Inversores, Cotizaciones |
-| Vendedor | Simulador, Solicitudes (solo las suyas), Clientes, Consulta BCRA |
+| Comercializador | Simulador, Solicitudes (solo las suyas), Clientes, Consulta BCRA |
 
 ## Usuarios
 <!-- pantallas: admin_usuarios.php -->
@@ -27,13 +27,13 @@ Usuarios, roles, permisos y menú, y lo que necesita saber quien mantiene el sis
 2. Tildá sus **roles**.
 3. **Guardar**.
 
-**Celular**: con él, en *Mensajes* aparecen **Llamar** y **WhatsApp** en la conversación con esa persona. Cada uno lo puede cargar también en *Mis datos* (click en su nombre, arriba a la derecha). Si un vendedor no lo tiene cargado, se usa el teléfono de su ficha de vendedor.
+**Celular**: con él, en *Mensajes* aparecen **Llamar** y **WhatsApp** en la conversación con esa persona. Cada uno lo puede cargar también en *Mis datos* (click en su nombre, arriba a la derecha). Si un comercializador no lo tiene cargado, se usa el teléfono de su ficha de comercializador.
 
 Para cambiarle la contraseña a alguien, editalo y escribí una nueva (vacía = no se cambia). La llave de la lista desbloquea a quien se pasó de intentos.
 
 Quien ya operó (creó clientes, liquidó, cobró…) no se elimina: se **da de baja**, y lo que hizo sigue a su nombre. Nadie se puede dar de baja a sí mismo ni sacarse el rol Administrador, y siempre tiene que quedar al menos un administrador activo.
 
-Si un usuario es vendedor, se vincula desde *Comisiones* → *Vendedores* (campo *Usuario del sistema*).
+Si un usuario es comercializador, se vincula desde *Comisiones* → *Comercializadores* (campo *Usuario del sistema*).
 
 ## Roles
 <!-- pantallas: admin_roles.php -->
@@ -77,10 +77,10 @@ Antes de que exista alguien que pueda entrar, se crea desde la consola del servi
 Pide la contraseña (vacía = genera una y la muestra). El mismo comando, con un correo que ya existe, le cambia la contraseña y lo reactiva: sirve para destrabar a un administrador que se la olvidó.
 
 ## Antes de empezar a operar
-<!-- resumen: Tipos de asociado, vendedores, documentación y cotizaciones. -->
+<!-- resumen: Tipos de asociado, comercializadores, documentación y cotizaciones. -->
 
 1. Revisar los **tipos de asociado**, con al menos una **tasa vigente** y sus **escalas de comisión** (*Tipos de asociado y tasas*). Sin tasa no se puede simular ni liquidar. Revisar las **reparticiones**.
-2. Cargar **vendedores** y, si alguno cobra distinto que la escala, sus **excepciones de comisión** (*Comisiones* → *Vendedores*).
+2. Cargar **comercializadores** y, si alguno cobra distinto que la escala, sus **excepciones de comisión** (*Comisiones* → *Comercializadores*).
 3. Revisar la **documentación requerida** (*Tablas y parámetros*).
 4. **Cargar histórico** de cotizaciones la primera vez (*Cotizaciones*).
 5. Hacer una consulta BCRA de prueba para confirmar que el servidor llega al BCRA.
@@ -126,7 +126,7 @@ Los documentos se guardan en `D:\financiera\documentos` y las sesiones en `D:\fi
 | No deja ingresar a nadie y no hay error | IIS no puede escribir en `sesiones` | Ídem: permiso de modificación en la carpeta de sesiones |
 | *Sin cotización* en un aporte en dólares | Falta la cotización de esa fecha | *Cotizaciones* → **Cargar histórico** |
 | No deja liquidar un préstamo | Control en rojo o advertencias sin confirmar | Ver los controles; confirmar con motivo o corregir el cliente |
-| Un préstamo liquidado no tiene comisión | El vendedor no tiene una regla vigente que coincida | Cargarla en *Vendedores* → *Reglas de comisión* (vale para los próximos) |
+| Un préstamo liquidado no tiene comisión | El comercializador no tiene una regla vigente que coincida | Cargarla en *Comercializadores* → *Reglas de comisión* (vale para los próximos) |
 | No deja anular un pago | No es el último pago del préstamo | Anular primero los posteriores |
 | No deja anular una liquidación de inversión | Ya está pagada | Solo se anulan liquidaciones *A pagar* |
 | Un error de base sin detalle | `debug` en `false` | Para diagnosticar, ponerlo en `true` un momento y volver a `false` |

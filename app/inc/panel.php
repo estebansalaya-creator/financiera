@@ -68,7 +68,7 @@ function panel_creditos(string $d, string $h): array
                       FROM solicitudes");
     $espera = q1('SELECT COUNT(*) AS n, AVG(TIMESTAMPDIFF(MINUTE, enviado_el, resuelto_el)) AS minutos
                     FROM solicitudes WHERE resuelto_el >= ? AND resuelto_el < ?', [$d, $fin]);
-    $solVend = q("SELECT COALESCE(v.nombre, 'Sin vendedor') AS vendedor, COUNT(*) AS n, SUM(s.monto) AS monto,
+    $solVend = q("SELECT COALESCE(v.nombre, 'Sin comercializador') AS vendedor, COUNT(*) AS n, SUM(s.monto) AS monto,
                          SUM(s.estado IN ('APROBADA', 'LIQUIDADA')) AS aprobadas, SUM(s.estado = 'LIQUIDADA') AS liquidadas
                     FROM solicitudes s LEFT JOIN vendedores v ON v.id_vendedor = s.id_vendedor
                    WHERE s.creado_el >= ? AND s.creado_el < ?

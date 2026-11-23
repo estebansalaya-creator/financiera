@@ -40,7 +40,7 @@ En la cabecera de la conversación, arriba a la derecha:
 
 - **📞 Llamar** (solo en las de a dos): llama al celular de la otra persona. En el celular abre el teléfono; en la computadora, la aplicación que tenga configurada para llamar (Teléfono de Windows, Teams, etc.).
 - **💬 WhatsApp** (solo en las de a dos): abre el chat de WhatsApp con esa persona; desde ahí se puede llamar por WhatsApp.
-- Llamar y WhatsApp aparecen si la persona tiene el celular cargado: cada uno lo carga en **Mis datos** (click en tu nombre, arriba a la derecha), o un administrador en *Usuarios*. A los vendedores sin celular cargado se les toma el de su ficha de vendedor. En un grupo, los teléfonos están en **Integrantes**.
+- Llamar y WhatsApp aparecen si la persona tiene el celular cargado: cada uno lo carga en **Mis datos** (click en tu nombre, arriba a la derecha), o un administrador en *Usuarios*. A los comercializadores sin celular cargado se les toma el de su ficha de comercializador. En un grupo, los teléfonos están en **Integrantes**.
 - **📹 Videollamada** (en todas, también grupos e hilos de solicitudes): arma una sala de video, la avisa en la conversación (con el sonido de siempre) y te la abre en otra pestaña. Los demás entran con **Unirse** en ese mensaje. Se puede apagar la cámara y usarla solo con audio.
 - Las salas son de **Jitsi Meet** (meet.jit.si): quien la abre primero tiene que identificarse con una cuenta de Google, GitHub o Facebook (lo pide Jitsi, la primera vez); los demás entran sin cuenta. El navegador pide permiso para la cámara y el micrófono. Desde el celular conviene tener instalada la app Jitsi Meet.
 - Si el navegador bloquea la pestaña nueva, entrá con **Volver a entrar** en el mensaje de la videollamada.
@@ -51,5 +51,5 @@ En la cabecera de la conversación, arriba a la derecha:
 Cada solicitud tiene su propio hilo, al pie de la ficha (tarjeta **Mensajes**). Sirve, por ejemplo, para contestar una observación o avisar que ya se subió un documento.
 
 - Lo ve y escribe todo el que puede abrir la solicitud.
-- Cuando alguien escribe, avisa a quien la cargó, al vendedor y, mientras está pendiente, a quienes pueden autorizar. Una vez resuelta, a quien la resolvió. El que escribe en el hilo también queda avisado de lo que siga.
+- Cuando alguien escribe, avisa a quien la cargó, al comercializador y, mientras está pendiente, a quienes pueden autorizar. Una vez resuelta, a quien la resolvió. El que escribe en el hilo también queda avisado de lo que siga.
 - El hilo también aparece en la pantalla **Mensajes**, en la solapa **Solicitudes**, con un enlace a la solicitud.

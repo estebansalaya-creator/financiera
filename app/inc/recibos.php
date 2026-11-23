@@ -20,11 +20,17 @@ declare(strict_types=1);
 //   4. El recibo (sp_emitir_recibo): uno por crédito, aplicado a las
 //      cuotas de todos los préstamos, de la que vence primero a la última.
 //      Lo que supera la deuda queda disponible en el crédito.
+//   5. La cuota social (inc\cuota_social.php) entra en la misma deuda: sus
+//      cuotas pendientes vencen el día 1 del mes y se pagan en el mismo
+//      orden, mezcladas con las de los préstamos (el mismo día, primero la
+//      cuota social). Un cliente sin préstamos vigentes que debe cuota
+//      social también tiene recibo (sql\financiera_cuota_social_recibos.sql).
 // ---------------------------------------------------------------------
 
 require_once __DIR__ . '/cobranzas.php';
 require_once __DIR__ . '/fondos.php';
 require_once __DIR__ . '/empresa.php';
+require_once __DIR__ . '/cuota_social.php';
 
 /** ¿Ya se corrió sql\financiera_recibos.sql? */
 function recibos_instalado(): bool
@@ -141,10 +147,10 @@ function rec_resolver(array $movs): array
  *   bloqueo   un préstamo con pagos posteriores a $fecha (no se puede
  *             imputar con esa fecha)
  */
-function rec_deuda_cliente(array $prestamos, string $fecha, string $hasta): array
+function rec_deuda_cliente(array $prestamos, string $fecha, string $hasta, array $cs = []): array
 {
     static $cache = [];
-    $d = ['vencido' => 0.0, 'periodo' => 0.0, 'despues' => 0.0, 'total' => 0.0, 'cuotas' => [], 'bloqueo' => null, 'prestamos' => 0];
+    $d = ['vencido' => 0.0, 'periodo' => 0.0, 'despues' => 0.0, 'total' => 0.0, 'cuotas' => [], 'bloqueo' => null, 'prestamos' => 0, 'cs' => 0.0];
     foreach ($prestamos as $p) {
         if ($p['fecha_liquidacion'] > $fecha) {
             continue;
@@ -171,10 +177,26 @@ function rec_deuda_cliente(array $prestamos, string $fecha, string $hasta): arra
                               'punitorio' => round((float) $c['punitorio'] + (float) $c['iva_punitorio'], 2), 'tramo' => $tramo];
         }
     }
+    // La cuota social pendiente: vence el día 1 de su mes (como sp_emitir_recibo).
+    foreach ($cs as $s) {
+        $t = round((float) $s['debe'], 2);
+        if ($t <= 0) {
+            continue;
+        }
+        $tramo = $s['periodo'] <= $fecha ? 'vencido' : ($s['periodo'] <= $hasta ? 'periodo' : 'despues');
+        $d[$tramo] += $t;
+        $d['total'] += $t;
+        $d['cs'] += $t;
+        $d['cuotas'][] = ['id_prestamo' => 0, 'id_cuota_social' => (int) $s['id_cuota_social'], 'nro_prestamo' => 'Cuota social',
+                          'nro_cuota' => 0, 'concepto' => $s['concepto'], 'vencimiento' => $s['periodo'],
+                          'dias_atraso' => max(0, (int) ((strtotime($fecha) - strtotime($s['periodo'])) / 86400)),
+                          'total' => $t, 'punitorio' => 0.0, 'tramo' => $tramo];
+    }
     usort($d['cuotas'], function ($a, $b) {
-        return [$a['vencimiento'], $a['id_prestamo'], $a['nro_cuota']] <=> [$b['vencimiento'], $b['id_prestamo'], $b['nro_cuota']];
+        return [$a['vencimiento'], isset($a['id_cuota_social']) ? 0 : 1, $a['id_prestamo'], $a['nro_cuota'], $a['id_cuota_social'] ?? 0]
+           <=> [$b['vencimiento'], isset($b['id_cuota_social']) ? 0 : 1, $b['id_prestamo'], $b['nro_cuota'], $b['id_cuota_social'] ?? 0];
     });
-    foreach (['vencido', 'periodo', 'despues', 'total'] as $x) {
+    foreach (['vencido', 'periodo', 'despues', 'total', 'cs'] as $x) {
         $d[$x] = round($d[$x], 2);
     }
     return $d;
@@ -192,6 +214,16 @@ function rec_aplicacion(array $cuotas, float $importe): array
     return ['cuotas' => $cuotas, 'sobra' => max(0.0, $resto)];
 }
 
+/** «P-000001 c.1» o «C. social nov-2026» (con «adicional» o «inicial» si no es la mensual). */
+function rec_cuota_txt(array $c): string
+{
+    if (!isset($c['id_cuota_social'])) {
+        return $c['nro_prestamo'] . ' c.' . $c['nro_cuota'];
+    }
+    $mes = substr(CS_MESES[(int) substr($c['vencimiento'], 5, 2)], 0, 3) . '-' . substr($c['vencimiento'], 0, 4);
+    return 'C. social ' . $mes . ($c['concepto'] === 'MENSUAL' ? '' : ' ' . strtolower(CS_CONCEPTOS[$c['concepto']] ?? $c['concepto']));
+}
+
 /** «P-000001 c.1 · P-000002 c.1 (parcial)…»: lo que cubre el recibo, en una línea. */
 function rec_aplicacion_txt(array $cuotas, int $max = 3): string
 {
@@ -200,7 +232,7 @@ function rec_aplicacion_txt(array $cuotas, int $max = 3): string
         if ($c['aplica'] <= 0) {
             continue;
         }
-        $partes[] = $c['nro_prestamo'] . ' c.' . $c['nro_cuota'] . ($c['aplica'] + 0.004 < $c['total'] ? ' (parcial)' : '');
+        $partes[] = rec_cuota_txt($c) . ($c['aplica'] + 0.004 < $c['total'] ? ' (parcial)' : '');
     }
     if (count($partes) > $max) {
         return implode(' · ', array_slice($partes, 0, $max)) . ' y ' . (count($partes) - $max) . ' más';
@@ -223,7 +255,7 @@ function rec_creditos(int $cuenta, string $desde, string $hasta, string $q = '')
     $res = rec_resolver($movs);
 
     $idsCli = array_values(array_unique(array_filter(array_column($res, 'id_cliente'))));
-    $clientes = $prestamos = [];
+    $clientes = $prestamos = $cuotasSoc = [];
     if ($idsCli) {
         foreach (q('SELECT id_cliente, cuit, denominacion FROM clientes WHERE id_cliente IN (' . rec_marcas($idsCli) . ')', $idsCli) as $c) {
             $clientes[(int) $c['id_cliente']] = $c;
@@ -234,6 +266,13 @@ function rec_creditos(int $cuenta, string $desde, string $hasta, string $q = '')
                      WHERE p.estado = 'VIGENTE' AND p.id_cliente IN (" . rec_marcas($idsCli) . ')
                      ORDER BY p.id_prestamo', $idsCli) as $p) {
             $prestamos[(int) $p['id_cliente']][] = $p;
+        }
+        if (cs_instalado()) {
+            foreach (q("SELECT id_cuota_social, id_cliente, periodo, concepto, importe - pagado AS debe FROM cuotas_sociales
+                         WHERE estado IN ('PENDIENTE','PARCIAL') AND importe > pagado AND id_cliente IN (" . rec_marcas($idsCli) . ')
+                         ORDER BY periodo, id_cuota_social', $idsCli) as $s) {
+                $cuotasSoc[(int) $s['id_cliente']][] = $s;
+            }
         }
     }
     $cuitsLeidos = array_values(array_unique(array_filter(array_column($res, 'leido'))));
@@ -260,9 +299,9 @@ function rec_creditos(int $cuenta, string $desde, string $hasta, string $q = '')
             }
         }
 
-        if (!$cli || empty($prestamos[(int) $cli['id_cliente']])) {
+        if (!$cli || (empty($prestamos[(int) $cli['id_cliente']]) && empty($cuotasSoc[(int) $cli['id_cliente']]))) {
             if ($cli) {
-                $fila['motivo'] = 'El cliente ' . $cli['denominacion'] . ' no tiene préstamos vigentes.';
+                $fila['motivo'] = 'El cliente ' . $cli['denominacion'] . ' no tiene préstamos vigentes ni cuota social pendiente.';
             } elseif ($r['leido'] && isset($inversores[$r['leido']])) {
                 $fila['motivo'] = 'Es de un inversor (' . $inversores[$r['leido']] . '), no de un cliente.';
             } elseif ($r['leido']) {
@@ -274,8 +313,8 @@ function rec_creditos(int $cuenta, string $desde, string $hasta, string $q = '')
             continue;
         }
 
-        $d = rec_deuda_cliente($prestamos[(int) $cli['id_cliente']], $m['fecha'], $hasta);
-        if ($d['prestamos'] === 0) {
+        $d = rec_deuda_cliente($prestamos[(int) $cli['id_cliente']] ?? [], $m['fecha'], $hasta, $cuotasSoc[(int) $cli['id_cliente']] ?? []);
+        if ($d['prestamos'] === 0 && $d['cs'] <= 0) {
             // Los préstamos se liquidaron después del crédito: no es su cuota.
             $fila['motivo'] = 'Los préstamos vigentes de ' . $cli['denominacion'] . ' se liquidaron después del crédito.';
             $sinCli[] = $fila;
@@ -508,6 +547,17 @@ function recibo_pagos(int $idRecibo): array
     }
     unset($g);
     return $pagos;
+}
+
+/** Lo que el recibo cobró de cuota social: una fila por cuota. */
+function recibo_cuota_social(int $idRecibo): array
+{
+    if (!cs_instalado() || !columna_existe('cuotas_sociales_pagos', 'id_recibo')) {
+        return [];
+    }
+    return q("SELECT c.id_cuota_social, c.periodo, c.concepto, c.importe AS cuota, c.pagado, c.estado, p.importe, p.anulado_el
+                FROM cuotas_sociales_pagos p JOIN cuotas_sociales c ON c.id_cuota_social = p.id_cuota_social
+               WHERE p.id_recibo = ? ORDER BY c.periodo, FIELD(c.concepto, 'INICIAL', 'MENSUAL', 'ADICIONAL', 'MANUAL')", [$idRecibo]);
 }
 
 /** El recibo de un pago (los enlaces viejos van por el pago). */

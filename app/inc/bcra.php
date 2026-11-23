@@ -99,13 +99,15 @@ function bcra_http(string $url): array
         ];
         if (cfg('bcra_cainfo')) {
             $opts[CURLOPT_CAINFO] = (string) cfg('bcra_cainfo');
+        } elseif (PHP_OS_FAMILY === 'Windows' && defined('CURLSSLOPT_NATIVE_CA')) {
+            $opts[CURLOPT_SSL_OPTIONS] = CURLSSLOPT_NATIVE_CA;   // la lista de certificados raíz de Windows
         }
         curl_setopt_array($ch, $opts);
         $txt = curl_exec($ch);
         $errno = curl_errno($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $error = $errno ? curl_error($ch) : '';
-        curl_close($ch);
+        // curl_close() no hace falta desde PHP 8 (y en 8.5 avisa que está obsoleta).
         if (!$errno) {
             $cuerpo = $txt;
         } elseif (!in_array($errno, [60, 77], true) || !extension_loaded('openssl')) {

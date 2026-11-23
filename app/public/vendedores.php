@@ -6,15 +6,15 @@ require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/comisiones_escalas.php';
 
 // ---------------------------------------------------------------------
-// Vendedores: alta, edición, baja y sus excepciones de comisión.
+// Comercializadores: alta, edición, baja y sus excepciones de comisión.
 //   - El código es el que figura en las planillas de comisiones (ALONSO,
 //     AMTAE…): único y en mayúsculas.
-//   - Un vendedor que tiene clientes, préstamos o comisiones no se
+//   - Un comercializador que tiene clientes, préstamos o comisiones no se
 //     elimina: se da de baja (deja de ofrecerse al cargar un cliente o un
 //     préstamo, y lo que tiene sigue a su nombre).
 //   - La comisión sale de la escala del tipo de asociado, la misma para
 //     todos (tipos_asociado.php). La solapa de comisiones tiene las
-//     excepciones del vendedor (comision_reglas con su id_vendedor): si una
+//     excepciones del comercializador (comision_reglas con su id_vendedor): si una
 //     cubre el tipo y el monto del préstamo, gana sobre la general. La
 //     comisión se congela en cada préstamo al liquidarlo: cambiar una
 //     escala no toca lo ya liquidado (inc/comisiones_escalas.php).
@@ -25,7 +25,7 @@ const VINCULOS = ['COMISIONISTA' => 'Comisionista', 'EMPLEADO' => 'Empleado'];
 $errores = [];
 $reg = null;
 
-// El celular del vendedor llega con sql\financiera_telefonos.sql: hasta que se
+// El celular del comercializador llega con sql\financiera_telefonos.sql: hasta que se
 // corra, el campo no se muestra y todo lo demás sigue andando.
 $conTel = false;
 try {
@@ -35,11 +35,14 @@ try {
 // CBU y alias, con sql\financiera_datos_bancarios.sql (mismo criterio que el celular).
 $conBanco = columna_existe('vendedores', 'cbu');
 $id = (int) (post_str('id') ?: get_str('edit'));          // las acciones de las excepciones vienen en la URL
-$solapa = get_str('solapa') === 'comisiones' ? 'comisiones' : 'datos';
+$solapa = in_array(get_str('solapa'), ['comisiones', 'contactos'], true) ? get_str('solapa') : 'datos';
+require_once __DIR__ . '/../inc/contactos.php';
+$contactoForm = null;
+$contactoErrores = [];
 $fExc = in_array(get_str('exc'), ['0', 'todas'], true) ? get_str('exc') : '1';   // las excepciones: activas, de baja o todas
 $escalaForm = null;
 
-/** Dónde figura un vendedor (lo que impide eliminarlo). */
+/** Dónde figura un comercializador (lo que impide eliminarlo). */
 function usos_vendedor(int $id): array
 {
     $u = q1('SELECT (SELECT COUNT(*) FROM clientes WHERE id_vendedor = ?) AS clientes,
@@ -51,7 +54,7 @@ function usos_vendedor(int $id): array
             [$id, $id, $id, $id, $id, $id]);
     $nombres = ['clientes' => 'clientes', 'prestamos' => 'préstamos', 'devengadas' => 'comisiones devengadas',
                 'importadas' => 'renglones de planillas de comisiones', 'liquidaciones' => 'liquidaciones de comisiones',
-                'supervisados' => 'vendedores que supervisa'];
+                'supervisados' => 'comercializadores que supervisa'];
     $out = [];
     foreach ($nombres as $k => $n) {
         if ((int) $u[$k]) {
@@ -66,7 +69,7 @@ if (es_post()) {
     $accion = post_str('accion');
     $actual = $id ? q1('SELECT * FROM vendedores WHERE id_vendedor = ?', [$id]) : null;
     if ($id && !$actual) {
-        flash('danger', 'El vendedor ya no existe.');
+        flash('danger', 'El comercializador ya no existe.');
         redirigir('vendedores.php');
     }
 
@@ -140,7 +143,7 @@ if (es_post()) {
             $errores[] = 'La fecha de alta es obligatoria.';
         }
         if ($reg['id_supervisor'] && $reg['id_supervisor'] === $id) {
-            $errores[] = 'Un vendedor no puede ser su propio supervisor.';
+            $errores[] = 'Un comercializador no puede ser su propio supervisor.';
         }
         if ($reg['id_usuario'] && ($o = q1('SELECT nombre FROM vendedores WHERE id_usuario = ? AND id_vendedor <> ?', [$reg['id_usuario'], $id]))) {
             $errores[] = 'Ese usuario ya está vinculado a «' . $o['nombre'] . '».';
@@ -190,6 +193,16 @@ if (es_post()) {
         }
     }
 
+    // Contactos del comercializador (el mismo modelo que los del cliente).
+    if (in_array($accion, ['contacto_guardar', 'contacto_baja'], true) && $actual) {
+        $solapa = 'contactos';
+        try {
+            $contactoErrores = contacto_acciones('comercializador', $id, 'vendedores.php?edit=' . $id . '&solapa=contactos#contactos', $contactoForm) ?? [];
+        } catch (Throwable $e) {
+            $contactoErrores = [mensaje_bd($e)];
+        }
+    }
+
     if (strncmp($accion, 'escala_', 7) === 0 && $actual) {
         $solapa = 'comisiones';
         try {
@@ -207,7 +220,7 @@ if (es_post()) {
 if ($id && $reg === null) {
     $reg = q1('SELECT * FROM vendedores WHERE id_vendedor = ?', [$id]);
     if (!$reg) {
-        flash('danger', 'El vendedor no existe.');
+        flash('danger', 'El comercializador no existe.');
         redirigir('vendedores.php');
     }
     $reg['zona_nueva'] = '';
@@ -237,7 +250,7 @@ if ($reg && $reg['id_vendedor']) {
             $tiposAsoc[$x['id_tipo_asociado']] = $x['tipo_nombre'] . ' (inactivo)';
         }
     }
-    $cobra = q("SELECT t.id_tipo_asociado, t.nombre,
+    $cobra = q("SELECT t.id_tipo_asociado, t.nombre, t.pct_telemarketing,
                        g.n AS g_n, g.porcentaje AS g_pct, g.porcentaje_tm AS g_tm, g.md AS g_md, g.mh AS g_mh,
                        x.n AS x_n, x.porcentaje AS x_pct, x.porcentaje_tm AS x_tm, x.md AS x_md, x.mh AS x_mh
                   FROM tipos_asociado t
@@ -290,9 +303,9 @@ function accion_vendedor(int $id, string $accion, string $icono, string $titulo,
          . '<button class="btn-accion ' . h($clase) . '" title="' . h($titulo) . '" aria-label="' . h($titulo) . '">' . icono($icono) . '</button></form>';
 }
 
-layout_inicio('Vendedores');
-titulo('Vendedores', 'Quiénes venden, con qué vínculo y zona, y sus excepciones a las escalas de comisión.',
-       $reg ? '' : boton('Nuevo vendedor', 'primary', 'vendedores.php?nuevo=1', 'agregar'));
+layout_inicio('Comercializadores');
+titulo('Comercializadores', 'Quiénes venden, con qué vínculo y zona, y sus excepciones a las escalas de comisión.',
+       $reg ? '' : boton('Nuevo comercializador', 'primary', 'vendedores.php?nuevo=1', 'agregar'));
 mensajes($errores);
 
 if ($reg):
@@ -303,6 +316,7 @@ if ($reg):
 <div class="abm-tabs">
   <a class="solapa <?= $solapa === 'datos' ? 'activa' : '' ?>" href="vendedores.php?edit=<?= (int) $r['id_vendedor'] ?>">Datos</a>
   <a class="solapa <?= $solapa === 'comisiones' ? 'activa' : '' ?>" href="vendedores.php?edit=<?= (int) $r['id_vendedor'] ?>&amp;solapa=comisiones">Excepciones de comisión <span class="conteo"><?= $nActivas ?></span></a>
+  <a class="solapa <?= $solapa === 'contactos' ? 'activa' : '' ?>" href="vendedores.php?edit=<?= (int) $r['id_vendedor'] ?>&amp;solapa=contactos">Contactos</a>
 </div>
 <?php endif; ?>
 
@@ -312,7 +326,7 @@ if ($reg):
   <input type="hidden" name="accion" value="guardar">
   <input type="hidden" name="id" value="<?= (int) $r['id_vendedor'] ?>">
   <div class="card">
-    <?= card_head($esNuevo ? 'Nuevo vendedor' : $r['nombre'], $esNuevo ? '' : 'Código ' . $r['codigo'], boton('Volver', 'secondary', 'vendedores.php', 'volver', false, true)) ?>
+    <?= card_head($esNuevo ? 'Nuevo comercializador' : $r['nombre'], $esNuevo ? '' : 'Código ' . $r['codigo'], boton('Volver', 'secondary', 'vendedores.php', 'volver', false, true)) ?>
     <div class="bloque">
       <div class="campos">
         <div class="campo" style="--span:2"><label for="codigo">Código <span class="req">*</span></label>
@@ -333,7 +347,7 @@ if ($reg):
           <select id="id_supervisor" name="id_supervisor"><?= opciones($supervisores, $r['id_supervisor'] ?? '', 'Sin supervisor') ?></select></div>
         <div class="campo" style="--span:3"><label for="id_usuario">Usuario del sistema</label>
           <select id="id_usuario" name="id_usuario"><?= opciones($usuarios, $r['id_usuario'] ?? '', 'Sin usuario') ?></select>
-          <small class="campo-ayuda">Si el vendedor entra al sistema.</small></div>
+          <small class="campo-ayuda">Si el comercializador entra al sistema.</small></div>
         <div class="campo" style="--span:3"><label for="fecha_alta">Alta <span class="req">*</span></label>
           <input type="date" id="fecha_alta" name="fecha_alta" value="<?= h((string) $r['fecha_alta']) ?>" required></div>
         <?php if ($conTel): ?>
@@ -357,6 +371,9 @@ if ($reg):
     <div class="form-acciones"><?= boton($esNuevo ? 'Dar de alta' : 'Guardar', 'primary', null, 'guardar', true) ?></div>
   </div>
 </form>
+<?php elseif ($solapa === 'contactos'): ?>
+  <?= contactos_tarjeta('comercializador', (int) $r['id_vendedor'], 'vendedores.php?edit=' . (int) $r['id_vendedor'] . '&solapa=contactos',
+                        $contactoForm, (int) get_str('contacto'), $contactoErrores) ?>
 <?php else: ?>
 <?php
     $baseExc = 'vendedores.php?edit=' . (int) $r['id_vendedor'] . '&solapa=comisiones';
@@ -373,7 +390,7 @@ if ($reg):
   <?= card_head('Excepciones de comisión de ' . $r['nombre'], 'cuando cobra distinto que la escala del tipo de asociado',
                 boton('Nueva excepción', 'primary', $baseExc . '&escala=nueva', 'agregar', false, true)) ?>
   <div class="bloque">
-    <p class="nota-arbol">La comisión sale de la escala de cada tipo de asociado (<?= puede('tipos_asociado.php') ? '<a href="tipos_asociado.php">Tipos de asociado y tasas</a>' : 'Tipos de asociado y tasas' ?>), la misma para todos los vendedores. Acá se cargan solo los casos en que este vendedor cobra distinto: si una excepción activa y vigente cubre el tipo y el monto del préstamo, se usa la suya; si no, la general. Con telemarketing se usa el % de telemarketing (vacío: el mismo). El % queda guardado en el préstamo: cambiar una excepción no modifica lo ya liquidado.</p>
+    <p class="nota-arbol">La comisión sale de la escala de cada tipo de asociado (<?= puede('tipos_asociado.php') ? '<a href="tipos_asociado.php">Tipos de asociado y tasas</a>' : 'Tipos de asociado y tasas' ?>), la misma para todos los comercializadores. Acá se cargan solo los casos en que este comercializador cobra distinto: si una excepción activa y vigente cubre el tipo y el monto del préstamo, se usa la suya; si no, la general. Con telemarketing se usa el % de telemarketing de la excepción o, si está vacío, el que fija el tipo de asociado. El % queda guardado en el préstamo: cambiar una excepción no modifica lo ya liquidado.</p>
   </div>
   <?= escalas_grilla($reglas, $baseExc . ($fExc !== '1' ? '&exc=' . $fExc : ''), true, 'excepción|excepciones',
                      $fExc === '1' ? 'Cobra todo por las escalas generales. Si cobra distinto en algún tipo, cargá la excepción con «Nueva excepción».' : 'Ninguna excepción con ese estado.',
@@ -385,11 +402,11 @@ if ($reg):
   <?= barra_local('vendedores.php?edit=' . (int) $r['id_vendedor'] . '&solapa=comisiones', 'Tipo de asociado…') ?>
   <div class="data-table-wrap">
     <table class="data-table" data-local data-paginada data-unidad="tipo|tipos">
-      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Tipo de asociado</th><th class="th-right">Escala general</th><th class="th-right">Este vendedor</th></tr></thead>
+      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Tipo de asociado</th><th class="th-right">Escala general</th><th class="th-right">Este comercializador</th></tr></thead>
       <tbody>
       <?php foreach ($cobra as $c):
           // Una sola escala: su % y, si no cubre todos los montos, el tramo.
-          $txt = function ($n, $p, $tm, $md, $mh) {
+          $txt = function ($n, $p, $tm, $md, $mh) use ($c) {
               if (!$n) {
                   return null;
               }
@@ -397,7 +414,7 @@ if ($reg):
                   return [num($n) . ' escalas por monto', ''];
               }
               $tramo = escala_tramo_txt($md, $mh);
-              return [escala_pct_campo($p) . ' % · TM ' . escala_pct_campo($tm ?? $p) . ' %', $tramo === 'Cualquier monto' ? '' : $tramo];
+              return [escala_pct_campo($p) . ' % · TM ' . escala_pct_campo(escala_tm_efectivo($p, $tm, $c['pct_telemarketing'] ?? 1)) . ' %', $tramo === 'Cualquier monto' ? '' : $tramo];
           };
           $gen = $txt($c['g_n'], $c['g_pct'], $c['g_tm'], $c['g_md'], $c['g_mh']);
           $exc = $txt($c['x_n'], $c['x_pct'], $c['x_tm'], $c['x_md'], $c['x_mh']); ?>
@@ -420,7 +437,7 @@ if ($reg):
 <?php endif; ?>
 
 <div class="card">
-  <?= card_head('Vendedores') ?>
+  <?= card_head('Comercializadores') ?>
   <form method="get" action="vendedores.php" class="filter-bar">
     <label class="filtro-campo filtro-buscar"><span class="filtro-lbl">Buscar</span>
       <input type="search" name="q" value="<?= h($fQ) ?>" class="filter-input <?= $fQ !== '' ? 'activo' : '' ?>" placeholder="Código, nombre, CUIT, CBU o alias…"></label>
@@ -432,7 +449,7 @@ if ($reg):
     <?= filtro_fin_local(null) ?>
   </form>
   <div class="data-table-wrap">
-    <table class="data-table" data-local data-paginada data-unidad="vendedor|vendedores">
+    <table class="data-table" data-local data-paginada data-unidad="comercializador|comercializadores">
       <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Código</th><th>Nombre</th><th>CUIT</th><th>Celular</th><th>Vínculo</th><th>Zona</th>
         <th>Supervisor</th><th>Usuario</th><th class="th-right">Clientes</th><th class="th-right">Préstamos vigentes</th><th class="th-right">Excepciones</th><th>Estado</th></tr></thead>
       <tbody>
@@ -462,7 +479,7 @@ if ($reg):
           <td><?= (int) $v['activo'] ? estado('Activo', 'ok') : estado('Baja', 'neutro') ?></td>
         </tr>
       <?php endforeach; ?>
-      <?php if (!$lista): ?><tr><td colspan="13" class="no-data">No hay vendedores con esos filtros.</td></tr><?php endif; ?>
+      <?php if (!$lista): ?><tr><td colspan="13" class="no-data">No hay comercializadores con esos filtros.</td></tr><?php endif; ?>
       </tbody>
     </table>
   </div>

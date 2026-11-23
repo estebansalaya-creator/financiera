@@ -12,7 +12,7 @@ declare(strict_types=1);
 //
 //   Quién ve qué
 //     - Con «Autorizaciones» o «Préstamos» en el menú: todas.
-//     - El resto (vendedores): las que cargó y las de su vendedor.
+//     - El resto (comercializadores): las que cargó y las de su comercializador.
 //   Quién autoriza: el que tiene «Autorizaciones» en el menú.
 //   Quién liquida: el que tiene «Liquidar préstamo» (prestamo_nuevo.php).
 //
@@ -72,7 +72,7 @@ function sol_ve_todas(): bool
     return sol_autoriza() || puede('prestamos.php');
 }
 
-/** El vendedor vinculado al usuario (Vendedores › Usuario del sistema), o null. */
+/** El comercializador vinculado al usuario (Comercializadores › Usuario del sistema), o null. */
 function sol_vendedor_propio(): ?int
 {
     static $v = false;
@@ -93,7 +93,7 @@ function sol_filtro_visibles(): array
     return $vend ? ['(s.creado_por = ? OR s.id_vendedor = ?)', [usuario_id(), $vend]] : ['s.creado_por = ?', [usuario_id()]];
 }
 
-/** La solicitud con su cliente, tipo de asociado, vendedor y usuarios; null si no existe o no la puede ver. */
+/** La solicitud con su cliente, tipo de asociado, comercializador y usuarios; null si no existe o no la puede ver. */
 function sol_cargar(int $id): ?array
 {
     [$w, $p] = sol_filtro_visibles();
@@ -119,7 +119,7 @@ const SOL_CLIENTES_MAX = 20;
  * escrito, o por nombre: con letras, cada palabra tiene que estar en la
  * razón social o el nombre de fantasía, en cualquier orden («perez juan»
  * encuentra «Pérez, Juan Carlos»; la base no distingue acentos). Por nombre
- * un vendedor ve solo su cartera (los clientes de su vendedor, los que cargó
+ * un comercializador ve solo su cartera (los clientes de su comercializador, los que cargó
  * él y los que ya tienen una solicitud suya); con el CUIT o el DNI, como
  * siempre, cualquiera.
  */
@@ -146,7 +146,7 @@ function sol_buscar_cliente(string $id, string $txt): array
             array_push($p, $like, $like);
         }
         if (!sol_ve_todas()) {
-            // Su cartera: los clientes de su vendedor, los que cargó y aquellos a los que ya les cargó una solicitud.
+            // Su cartera: los clientes de su comercializador, los que cargó y aquellos a los que ya les cargó una solicitud.
             $vend = (int) sol_vendedor_propio();
             $w[] = '(c.id_vendedor = ? OR c.creado_por = ?
                      OR EXISTS (SELECT 1 FROM solicitudes s WHERE s.id_cliente = c.id_cliente AND (s.creado_por = ? OR s.id_vendedor = ?)))';
@@ -432,7 +432,7 @@ function sol_controles_limpios(array $ctl): array
 }
 
 // ---------------------------------------------------------------------
-// Instructivo para vendedores (PDF)
+// Instructivo para comercializadores (PDF)
 //   Cómo cargar una solicitud desde el celular y qué documentación pedirle
 //   al cliente. La lista de documentación sale del catálogo como esté
 //   configurado en ese momento (obligatoria / opcional, vigencia), así que
@@ -468,7 +468,7 @@ function sol_instructivo_pdf(): void
         return $out;
     };
 
-    $rep = new PdfReporte('Cómo cargar una solicitud de préstamo', 'Instructivo para vendedores · ' . $nombre, false);
+    $rep = new PdfReporte('Cómo cargar una solicitud de préstamo', 'Instructivo para comercializadores · ' . $nombre, false);
 
     $rep->seccion('1. Entrar al sistema');
     $pasos = [];

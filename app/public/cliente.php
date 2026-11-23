@@ -55,8 +55,35 @@ function monto_campo($n): string
 // ---------------------------------------------------------------------
 // Guardar
 // ---------------------------------------------------------------------
+// Contactos y observaciones (tarjetas al pie de la ficha): sus POST se
+// atienden acá y redirigen; no pasan por el guardado de la ficha.
+require_once __DIR__ . '/../inc/contactos.php';
+require_once __DIR__ . '/../inc/observaciones.php';
+require_once __DIR__ . '/../inc/cuota_social.php';
+$contactoForm = null;
+$contactoErrores = [];
+$obsForm = null;
+$obsErrores = [];
+$csErrores = [];
+$accionTarjeta = es_post() && in_array(post_str('accion'), ['contacto_guardar', 'contacto_baja', 'observacion_agregar', 'observacion_hecho',
+                                                    'cs_alta', 'cs_baja', 'cs_reactivar', 'cs_anular', 'cs_pago_anular'], true);
+if ($accionTarjeta && $id > 0) {
+    csrf_exigir();
+    try {
+        $contactoErrores = contacto_acciones('cliente', $id, 'cliente.php?id=' . $id . '#contactos', $contactoForm) ?? [];
+        $obsErrores = observacion_acciones($id, 'cliente.php?id=' . $id . '#observaciones', $obsForm) ?? [];
+        $csErrores = cs_cliente_acciones($id, 'cliente.php?id=' . $id . '#cuota-social') ?? [];
+    } catch (Throwable $e) {
+        $obsErrores = [error_amigable($e)];
+    }
+}
+
+// Sucursal y cuenta, fecha de alta, otro banco y venta de cartera llegan con
+// sql\financiera_clientes_ficha.sql: hasta que se corra no se muestran.
+$conFicha = columna_existe('clientes', 'cuenta_bancaria');
+
 $form = null;
-if (es_post()) {
+if (es_post() && !$accionTarjeta) {
     csrf_exigir();
     $f = [
         'tipo' => post_str('tipo'), 'cuit' => cuit_limpio(post_str('cuit')), 'estado' => post_str('estado'),
@@ -69,6 +96,9 @@ if (es_post()) {
         'tipo_societario' => post_str('tipo_societario'), 'actividad' => post_str('actividad'),
         'fecha_inicio' => post_str('fecha_inicio'), 'facturacion_anual' => post_str('facturacion_anual'),
         'cbu' => cbu_limpio(post_str('cbu')), 'alias_cbu' => alias_cbu_limpio(post_str('alias_cbu')),
+        'id_banco' => post_str('id_banco'), 'fecha_alta' => post_str('fecha_alta'), 'banco_sucursal' => preg_replace('/\D/', '', post_str('banco_sucursal')),
+        'cuenta_bancaria' => preg_replace('/[^0-9\/-]/', '', post_str('cuenta_bancaria')),
+        'otro_banco' => post_str('otro_banco') === '1' ? 1 : 0, 'venta_cartera' => post_str('venta_cartera') === '1' ? 1 : 0,
         'domicilios' => [], 'telefonos' => [],
     ];
     $dT = post_lista('dom_tipo');   $dC = post_lista('dom_calle'); $dN = post_lista('dom_numero');
@@ -80,12 +110,9 @@ if (es_post()) {
             $f['domicilios'][] = $r;
         }
     }
-    $tT = post_lista('tel_tipo'); $tN = post_lista('tel_numero'); $tO = post_lista('tel_obs');
-    foreach ($tN as $i => $num) {
-        if ($num !== '' || ($tO[$i] ?? '') !== '') {
-            $f['telefonos'][] = ['tipo' => $tT[$i] ?? 'CELULAR', 'numero' => $num, 'observacion' => $tO[$i] ?? ''];
-        }
-    }
+    // Los teléfonos son contactos (tarjeta Contactos). En el alta, un celular
+    // opcional que queda como el contacto titular principal.
+    $f['celular_alta'] = $id > 0 ? '' : post_str('celular_alta');
     $form = $f;
 
     // Validaciones
@@ -146,19 +173,28 @@ if (es_post()) {
     if ($conBanco) {
         $errores = array_merge($errores, datos_bancarios_errores($f['cbu'], $f['alias_cbu']));
     }
+    if ($conFicha) {
+        if ($f['fecha_alta'] !== '' && (!leer_fecha($f['fecha_alta']) || leer_fecha($f['fecha_alta']) > date('Y-m-d'))) {
+            $errores[] = 'La fecha de alta no es válida (no puede ser futura).';
+        }
+        if (strlen($f['banco_sucursal']) > 10) {
+            $errores[] = 'La sucursal del banco va con hasta 10 números.';
+        }
+        if (strlen($f['cuenta_bancaria']) > 20) {
+            $errores[] = 'El número de cuenta va con hasta 20 caracteres.';
+        }
+    }
     foreach ($f['domicilios'] as $k => $d) {
         if ($d['calle'] === '' || $d['localidad'] === '' || !in_array($d['provincia'], PROVINCIAS, true)) {
             $errores[] = 'Domicilio ' . ($k + 1) . ': faltan la calle, la localidad o la provincia.';
         }
     }
-    // Teléfonos: se guardan en el formato único del sistema (tel_normalizar en ui.php).
-    // «Celular» y «Fijo» lo dicen; en Laboral y Referencia lo decide el 15 o el 9.
-    foreach ($f['telefonos'] as $k => $t) {
-        $n = tel_normalizar($t['numero'], ['CELULAR' => true, 'FIJO' => false][$t['tipo']] ?? null);
-        if ($n === null) {
-            $errores[] = tel_error('Teléfono ' . ($k + 1));
-        } else {
-            $f['telefonos'][$k]['numero'] = $n;
+    // El celular del alta, en el formato único del sistema (tel_normalizar en ui.php).
+    $celAlta = null;
+    if ($f['celular_alta'] !== '') {
+        $celAlta = tel_normalizar($f['celular_alta'], true);
+        if ($celAlta === null) {
+            $errores[] = tel_error('El celular');
         }
     }
 
@@ -212,22 +248,29 @@ if (es_post()) {
             if ($conBanco) {
                 q('UPDATE clientes SET cbu = ?, alias_cbu = ? WHERE id_cliente = ?', [$f['cbu'] ?: null, $f['alias_cbu'] ?: null, $id]);
             }
-            q('DELETE FROM telefonos WHERE id_cliente = ?', [$id]);
-            foreach ($f['telefonos'] as $k => $t) {
-                q('INSERT INTO telefonos (id_cliente, tipo, numero, observacion, principal) VALUES (?,?,?,?,?)',
-                  [$id, isset(TIPOS_TEL[$t['tipo']]) ? $t['tipo'] : 'CELULAR', $t['numero'], $t['observacion'] ?: null, $k === 0 ? 1 : 0]);
+            if ($conFicha) {
+                // Sin banco elegido, el del CBU (sus tres primeros números son el código BCRA).
+                $idBanco = (int) $f['id_banco'] ?: (int) (q1('SELECT id_banco FROM bancos WHERE codigo = ?', [substr((string) $f['cbu'], 0, 3)])['id_banco'] ?? 0);
+                q('UPDATE clientes SET id_banco = ?, fecha_alta = COALESCE(?, fecha_alta, CURDATE()), banco_sucursal = ?, cuenta_bancaria = ?,
+                          otro_banco = ?, venta_cartera = ? WHERE id_cliente = ?',
+                  [$idBanco ?: null, leer_fecha($f['fecha_alta']), $f['banco_sucursal'] ?: null, $f['cuenta_bancaria'] ?: null,
+                   $f['otro_banco'], $f['venta_cartera'], $id]);
+            }
+            if ($celAlta !== null) {
+                $tit = q1("SELECT id_tipo_contacto FROM contactos_tipos WHERE nombre = 'Titular'");
+                q('INSERT INTO contactos (entidad_tipo, entidad_id, nombre, id_tipo_contacto, celular, principal, creado_por)
+                   VALUES (?,?,?,?,?,1,?)', ['cliente', $id, mb_substr($denominacion, 0, 150), $tit['id_tipo_contacto'] ?? null, $celAlta, usuario_id()]);
             }
             $pdo->commit();
 
-            // Mismo teléfono en otro cliente: se avisa, no se impide (puede ser un familiar).
+            // Mismo celular en otro cliente: se avisa, no se impide (puede ser un familiar).
             $aviso = '';
-            if ($f['telefonos']) {
-                $nums = array_column($f['telefonos'], 'numero');
-                $otros = q('SELECT DISTINCT c.denominacion FROM telefonos t JOIN clientes c ON c.id_cliente = t.id_cliente
-                             WHERE t.numero IN (' . implode(',', array_fill(0, count($nums), '?')) . ') AND t.id_cliente <> ? LIMIT 3',
-                           array_merge($nums, [$id]));
+            if ($celAlta !== null) {
+                $otros = q("SELECT DISTINCT c.denominacion FROM contactos t JOIN clientes c ON c.id_cliente = t.entidad_id
+                             WHERE t.entidad_tipo = 'cliente' AND t.activo = 1 AND (t.celular = ? OR t.telefono = ?) AND t.entidad_id <> ? LIMIT 3",
+                           [$celAlta, $celAlta, $id]);
                 if ($otros) {
-                    $aviso = ' Ojo: el teléfono también lo tiene ' . implode(', ', array_column($otros, 'denominacion')) . '.';
+                    $aviso = ' Ojo: el celular también figura en ' . implode(', ', array_column($otros, 'denominacion')) . '.';
                 }
             }
             if ($conBanco && $f['cbu'] !== '') {
@@ -281,7 +324,6 @@ try {
                         WHERE c.id_cliente = ?', [$id]);
         if ($cliente) {
             $cliente['domicilios'] = q('SELECT * FROM domicilios WHERE id_cliente = ? ORDER BY principal DESC, id_domicilio', [$id]);
-            $cliente['telefonos']  = q('SELECT * FROM telefonos WHERE id_cliente = ? ORDER BY principal DESC, id_telefono', [$id]);
             $prestamos = q('SELECT p.id_prestamo, p.nro_prestamo, p.fecha_liquidacion, p.capital, p.plazo, p.valor_cuota, p.estado, ta.nombre AS tipo_asociado
                               FROM prestamos p JOIN tipos_asociado ta ON ta.id_tipo_asociado = p.id_tipo_asociado
                              WHERE p.id_cliente = ? ORDER BY p.fecha_liquidacion DESC, p.id_prestamo DESC', [$id]);
@@ -331,6 +373,13 @@ if ($cliente) {
     }
 }
 
+// ARCA: la última constancia guardada (la consulta se hace con el botón «Consultar ARCA»).
+require_once __DIR__ . '/../inc/arca.php';
+$arcaGuardada = null;
+if ($cliente) {
+    $arcaGuardada = arca_constancia_guardada($cliente['cuit']);
+}
+
 if ($id > 0 && !$cliente && !$form) {
     http_response_code(404);
 }
@@ -355,9 +404,9 @@ $v = $form ?? ($cliente ? array_merge($cliente, [
       'apellido' => '', 'nombres' => '', 'dni' => '', 'fecha_nac' => '', 'sexo' => '', 'estado_civil' => '', 'ocupacion' => '',
       'empleador' => '', 'ingreso_mensual' => '', 'razon_social' => '', 'nombre_fantasia' => '', 'tipo_societario' => '',
       'actividad' => '', 'fecha_inicio' => '', 'facturacion_anual' => '', 'cbu' => '', 'alias_cbu' => '',
+      'id_banco' => '', 'fecha_alta' => date('Y-m-d'), 'banco_sucursal' => '', 'cuenta_bancaria' => '', 'otro_banco' => 0, 'venta_cartera' => 0,
       'domicilios' => [], 'telefonos' => []]);
 $doms = $v['domicilios'] ?: [['tipo' => 'REAL', 'calle' => '', 'numero' => '', 'piso_depto' => '', 'localidad' => '', 'provincia' => 'Buenos Aires', 'cp' => '']];
-$tels = $v['telefonos'] ?: [['tipo' => 'CELULAR', 'numero' => '', 'observacion' => '']];
 $esF  = $v['tipo'] !== 'J';
 
 titulo($cliente ? $cliente['denominacion'] : 'Nuevo cliente',
@@ -395,15 +444,6 @@ function renglon_domicilio(array $d): string
         . '</div>';
 }
 
-function renglon_telefono(array $t): string
-{
-    return '<div class="renglon">'
-        . '<div class="campo" style="--span:2"><label>Tipo</label><select name="tel_tipo[]">' . opciones(TIPOS_TEL, $t['tipo'] ?? 'CELULAR') . '</select></div>'
-        . '<div class="campo" style="--span:3"><label>Número</label><input name="tel_numero[]" value="' . h(tel_fmt($t['numero'] ?? '')) . '" maxlength="25" inputmode="tel" class="mono" data-tel="tipo" placeholder="11 2345-6789"></div>'
-        . '<div class="campo" style="--span:7"><label>Observación</label><input name="tel_obs[]" value="' . h($t['observacion'] ?? '') . '" maxlength="100" placeholder="De quién es, horario…"></div>'
-        . '<button type="button" class="btn-accion borrar renglon-quitar" title="Quitar el teléfono" aria-label="Quitar el teléfono">' . icono('cerrar') . '</button>'
-        . '</div>';
-}
 ?>
 
 <form method="post" action="cliente.php<?= $id ? '?id=' . $id : '' ?>" id="frm-cliente">
@@ -422,7 +462,10 @@ function renglon_telefono(array $t): string
         </div>
         <div class="campo" style="--span:3">
           <label for="cuit"><span class="solo-F">CUIL</span><span class="solo-J">CUIT</span> <span class="req">*</span></label>
-          <input id="cuit" name="cuit" value="<?= h(cuit_fmt($v['cuit'])) ?>" maxlength="13" class="mono" data-cuit required autocomplete="off" placeholder="20-12345678-9">
+          <div style="display:flex;gap:6px;align-items:center">
+            <input id="cuit" name="cuit" value="<?= h(cuit_fmt($v['cuit'])) ?>" maxlength="13" class="mono" data-cuit required autocomplete="off" placeholder="20-12345678-9" style="flex:1;min-width:0">
+            <?= boton('ARCA', 'ghost', null, 'buscar', false, true, ['id' => 'btn-arca', 'title' => 'Consultar ARCA: trae nombre, domicilio fiscal y condición frente al IVA']) ?>
+          </div>
           <span class="campo-ayuda"></span>
         </div>
         <div class="campo" style="--span:2">
@@ -434,8 +477,8 @@ function renglon_telefono(array $t): string
           <select id="condicion_iva" name="condicion_iva"><?= opciones(COND_IVA, $v['condicion_iva'] ?? '', '—') ?></select>
         </div>
         <div class="campo" style="--span:2">
-          <label for="id_vendedor">Vendedor</label>
-          <select id="id_vendedor" name="id_vendedor"><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $v['id_vendedor'] ?? '', 'Sin vendedor') ?></select>
+          <label for="id_vendedor">Comercializador</label>
+          <select id="id_vendedor" name="id_vendedor"><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $v['id_vendedor'] ?? '', 'Sin comercializador') ?></select>
         </div>
         <div class="campo" style="--span:4">
           <label for="email">Email</label>
@@ -467,6 +510,12 @@ function renglon_telefono(array $t): string
           <span class="campo-ayuda">dónde cobra</span>
         </div>
       </div>
+    </div>
+    <div class="bloque" id="arca-bloque" hidden
+         data-guardada="<?= h($arcaGuardada ? json_encode($arcaGuardada, JSON_UNESCAPED_UNICODE) : '') ?>">
+      <div class="bloque-titulo">ARCA <span id="arca-cuando" class="td-muted" style="font-weight:400"></span></div>
+      <div id="arca-aviso"></div>
+      <dl class="datos-lista" id="arca-datos" style="padding:8px 0"></dl>
     </div>
 
     <fieldset class="bloque solo-F" <?= $esF ? '' : 'disabled' ?>>
@@ -519,6 +568,45 @@ function renglon_telefono(array $t): string
       <div class="bloque-titulo">Datos bancarios</div>
       <div class="campos">
         <?= campos_datos_bancarios($v['cbu'] ?? '', $v['alias_cbu'] ?? '', 'de una cuenta a nombre del cliente: ahí se le transfiere el préstamo') ?>
+        <?php if ($conFicha):
+            $bancosLista = q('SELECT id_banco, codigo, nombre FROM bancos WHERE activo = 1 OR id_banco = ? ORDER BY nombre', [(int) ($v['id_banco'] ?? 0)]); ?>
+        <div class="campo" style="--span:4">
+          <label for="id_banco">Banco</label>
+          <select id="id_banco" name="id_banco">
+            <option value="">—</option>
+            <?php foreach ($bancosLista as $b): ?>
+              <option value="<?= (int) $b['id_banco'] ?>" data-codigo="<?= h($b['codigo']) ?>" <?= (string) $b['id_banco'] === (string) ($v['id_banco'] ?? '') ? 'selected' : '' ?>><?= h($b['nombre']) ?> (<?= h($b['codigo']) ?>)</option>
+            <?php endforeach; ?>
+          </select>
+          <span class="campo-ayuda">sale solo del CBU; los bancos se cargan en Tesorería › Bancos</span>
+        </div>
+        <div class="campo" style="--span:2">
+          <label for="banco_sucursal">Sucursal</label>
+          <input id="banco_sucursal" name="banco_sucursal" value="<?= h($v['banco_sucursal'] ?? '') ?>" maxlength="10" inputmode="numeric" class="mono">
+        </div>
+        <div class="campo" style="--span:2">
+          <label for="cuenta_bancaria">N° de cuenta</label>
+          <input id="cuenta_bancaria" name="cuenta_bancaria" value="<?= h($v['cuenta_bancaria'] ?? '') ?>" maxlength="20" class="mono">
+          <span class="campo-ayuda">la usan los débitos</span>
+        </div>
+        <?php endif; ?>
+      </div>
+    </div>
+    <?php endif; ?>
+    <?php if ($conFicha): ?>
+    <div class="bloque">
+      <div class="bloque-titulo">Cartera</div>
+      <div class="campos">
+        <div class="campo" style="--span:2">
+          <label for="fecha_alta">Cliente desde</label>
+          <input type="date" id="fecha_alta" name="fecha_alta" value="<?= h($v['fecha_alta'] ?? '') ?>" max="<?= date('Y-m-d') ?>">
+        </div>
+        <div class="campo campo-boton arriba" style="--span:2"><span class="campo-label">&nbsp;</span>
+          <label class="campo-check"><input type="checkbox" name="otro_banco" value="1" <?= (int) ($v['otro_banco'] ?? 0) ? 'checked' : '' ?>> Cobra en otro banco</label>
+        </div>
+        <div class="campo campo-boton arriba" style="--span:2"><span class="campo-label">&nbsp;</span>
+          <label class="campo-check"><input type="checkbox" name="venta_cartera" value="1" <?= (int) ($v['venta_cartera'] ?? 0) ? 'checked' : '' ?>> Venta de cartera</label>
+        </div>
       </div>
     </div>
     <?php endif; ?>
@@ -530,8 +618,15 @@ function renglon_telefono(array $t): string
   </div>
 
   <div class="card">
-    <?= card_head('Teléfonos', 'el primero es el principal', boton('Agregar teléfono', 'ghost', null, 'agregar', false, true, ['data-agregar' => 'tpl-tel', 'data-destino' => 'tels'])) ?>
-    <div class="bloque"><div id="tels"><?php foreach ($tels as $t) { echo renglon_telefono($t); } ?></div></div>
+    <?php if (!$cliente): ?>
+    <?= card_head('Teléfono', 'los demás teléfonos, referidos y familiares se cargan después en Contactos') ?>
+    <div class="bloque"><div class="campos">
+      <div class="campo" style="--span:4">
+        <label for="celular_alta">Celular</label>
+        <input id="celular_alta" name="celular_alta" value="<?= h($v['celular_alta'] ?? '') ?>" maxlength="25" inputmode="tel" class="mono" data-tel="movil" placeholder="11 2345-6789">
+      </div>
+    </div></div>
+    <?php endif; ?>
     <div class="form-acciones">
       <?= boton('Volver', 'secondary', 'clientes.php', 'volver') ?>
       <?= boton($cliente ? 'Guardar cambios' : 'Crear cliente', 'primary', null, 'guardar', true) ?>
@@ -540,7 +635,12 @@ function renglon_telefono(array $t): string
 </form>
 
 <template id="tpl-dom"><?= renglon_domicilio(['provincia' => 'Buenos Aires']) ?></template>
-<template id="tpl-tel"><?= renglon_telefono([]) ?></template>
+
+<?php if ($cliente): ?>
+  <?= observaciones_tarjeta($id, 'cliente.php?id=' . $id, $prestamos, $obsForm, $obsErrores) ?>
+  <?= contactos_tarjeta('cliente', $id, 'cliente.php?id=' . $id, $contactoForm, (int) get_str('contacto'), $contactoErrores) ?>
+  <?= cs_tarjeta_cliente($id, $cliente, $csErrores) ?>
+<?php endif; ?>
 
 <?php if ($cliente):
     $hoy  = date('Y-m-d');
@@ -776,6 +876,131 @@ function renglon_telefono(array $t): string
     ayuda.textContent = dias && !vto.value ? 'vacío: emisión + ' + dias + ' días' : '';
   }
   if (tdoc) { tdoc.addEventListener('change', ayudaVto); vto.addEventListener('input', ayudaVto); }
+
+  // ── Consultar ARCA ────────────────────────────────────────────────────
+  // Trae de la constancia de inscripción el nombre o la razón social, el
+  // domicilio fiscal y la condición frente al IVA, y completa la ficha
+  // (no guarda: se revisa y se guarda como siempre).
+  var btnArca = document.getElementById('btn-arca'), bloque = document.getElementById('arca-bloque'),
+      lista = document.getElementById('arca-datos'), avisoArca = document.getElementById('arca-aviso'),
+      cuando = document.getElementById('arca-cuando');
+  function fila(t, v) {
+    if (!v) return;
+    var dt = document.createElement('dt'), dd = document.createElement('dd');
+    dt.textContent = t; dd.textContent = v; lista.appendChild(dt); lista.appendChild(dd);
+  }
+  function aviso(texto, tipo) {
+    avisoArca.innerHTML = '';
+    if (!texto) return;
+    var d = document.createElement('div'); d.className = 'alert alert-' + (tipo || 'info'); d.style.margin = '0 0 8px';
+    var t = document.createElement('div'); t.textContent = texto; d.appendChild(t); avisoArca.appendChild(d);
+  }
+  function fechaHora(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(s || '');
+    return m ? m[3] + '/' + m[2] + '/' + m[1] + ' ' + m[4] + ':' + m[5] : '';
+  }
+  // d: lo que devuelve arca.php, o lo guardado (arca_constancia, otros nombres de campo).
+  function pintar(d, guardada) {
+    var dom = d.domicilio || (d.dom_direccion ? { direccion: d.dom_direccion, localidad: d.dom_localidad, provincia: d.dom_provincia, cp: d.dom_cp } : null);
+    lista.innerHTML = '';
+    fila(d.tipo_persona === 'JURIDICA' ? 'Razón social' : 'Apellido y nombre', d.razon_social);
+    fila('Estado', d.estado_clave);
+    fila('Condición IVA', (d.condicion_iva_txt || '') + (d.categoria_monotributo ? ' · ' + d.categoria_monotributo : ''));
+    if (dom && dom.direccion) fila('Domicilio fiscal', [dom.direccion, dom.localidad, dom.provincia, dom.cp ? 'CP ' + dom.cp : ''].filter(Boolean).join(', '));
+    var acts = d.actividades || [];
+    if (acts.length) fila('Actividad', acts[0].descripcion + (acts.length > 1 ? ' (y ' + (acts.length - 1) + ' más)' : ''));
+    var imps = (d.impuestos || []).filter(function (i) { return !i.estado || i.estado === 'AC'; });
+    if (imps.length) fila('Impuestos activos', imps.map(function (i) { return i.descripcion; }).join(' · '));
+    var errs = d.errores ? (Array.isArray(d.errores) ? d.errores.join(' · ') : d.errores) : '';
+    fila('ARCA informa', errs);
+    cuando.textContent = guardada
+      ? '· consultado el ' + fechaHora(d.consultado_el) + (d.consultado_por_usuario ? ' por ' + d.consultado_por_usuario : '')
+      : '· recién consultado';
+    bloque.hidden = false;
+  }
+  function poner(id, valor) {
+    var el = document.getElementById(id);
+    if (el && valor && el.value !== valor) { el.value = valor; return true; }
+    return false;
+  }
+  function completar(d) {
+    var hechos = [];
+    var t = d.tipo_persona === 'JURIDICA' ? 'J' : 'F';
+    if (tipo() !== t) {
+      var r = form.querySelector('input[name=tipo][value=' + t + ']');
+      if (r) { r.checked = true; aplicar(); hechos.push('tipo'); }
+    }
+    if (t === 'F') {
+      if (poner('apellido', d.apellido)) hechos.push('apellido');
+      if (poner('nombres', d.nombre)) hechos.push('nombres');
+      var c = (d.cuit || '').replace(/\D/g, '');
+      if (c.length === 11 && dni && !dni.value) dni.value = String(parseInt(c.substr(2, 8), 10));
+    } else {
+      if (poner('razon_social', d.razon_social)) hechos.push('razón social');
+      var act = document.getElementById('actividad');
+      if (act && !act.value && d.actividades && d.actividades.length) { act.value = d.actividades[0].descripcion.substr(0, 150); hechos.push('actividad'); }
+    }
+    if (poner('condicion_iva', d.condicion_iva)) hechos.push('condición IVA');
+    var dom = d.domicilio;
+    if (dom && dom.direccion) {
+      var cont = document.getElementById('doms'), filas = cont.querySelectorAll('.renglon'), destino = null;
+      filas.forEach(function (f) { if (!destino && f.querySelector('[name="dom_tipo[]"]').value === 'LEGAL') destino = f; });
+      if (!destino) filas.forEach(function (f) { if (!destino && !f.querySelector('[name="dom_calle[]"]').value) destino = f; });
+      if (!destino) {
+        var tpl = document.getElementById('tpl-dom');
+        cont.appendChild(tpl.content.cloneNode(true));
+        filas = cont.querySelectorAll('.renglon'); destino = filas[filas.length - 1];
+      }
+      var set = function (n, v) { var el = destino.querySelector('[name="' + n + '[]"]'); if (el && v !== undefined && v !== null) el.value = v; };
+      if (cont.querySelectorAll('.renglon').length > 1) set('dom_tipo', 'LEGAL');
+      set('dom_calle', (dom.calle || dom.direccion).substr(0, 120));
+      set('dom_numero', (dom.numero || '').substr(0, 10));
+      set('dom_piso', (dom.piso_depto || '').substr(0, 20));
+      set('dom_localidad', (dom.localidad || '').substr(0, 80));
+      set('dom_cp', (dom.cp || '').substr(0, 10));
+      if (dom.provincia) {
+        var sp = destino.querySelector('[name="dom_provincia[]"]');
+        Array.prototype.forEach.call(sp.options, function (o) { if (o.text === dom.provincia) sp.value = o.value || o.text; });
+      }
+      hechos.push('domicilio fiscal');
+    }
+    return hechos;
+  }
+  if (btnArca) {
+    btnArca.addEventListener('click', function () {
+      var c = cuit.value.replace(/\D/g, '');
+      if (c.length !== 11) { aviso('Cargá el CUIT/CUIL completo (11 dígitos) y volvé a tocar ARCA.', 'warning'); bloque.hidden = false; return; }
+      var fd = new FormData();
+      fd.append('cuit', c);
+      fd.append('_csrf', form.querySelector('[name=_csrf]').value);
+      btnArca.disabled = true;
+      var texto = btnArca.lastChild.textContent; btnArca.lastChild.textContent = 'Consultando…';
+      fetch('arca.php', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, error: 'ARCA no respondió (HTTP ' + r.status + ').' }; }); })
+        .then(function (j) {
+          if (!j.ok) { aviso(j.error || 'No se pudo consultar ARCA.', 'danger'); bloque.hidden = false; return; }
+          pintar(j.datos, false);
+          var hechos = completar(j.datos);
+          aviso((hechos.length ? 'Se completó: ' + hechos.join(', ') + '. Revisá los datos y guardá.' : 'Los datos de la ficha ya coinciden con ARCA.')
+                + (j.aviso ? ' ' + j.aviso : ''), hechos.length ? 'info' : 'ok');
+        })
+        .catch(function () { aviso('No se pudo conectar con el servidor.', 'danger'); bloque.hidden = false; })
+        .then(function () { btnArca.disabled = false; btnArca.lastChild.textContent = texto; });
+    });
+  }
+  // El banco sale del CBU (tres primeros números = código BCRA) si no hay uno elegido.
+  var cbuIn = document.getElementById('cbu'), selBanco = document.getElementById('id_banco');
+  if (cbuIn && selBanco) {
+    cbuIn.addEventListener('change', function () {
+      var c = cbuIn.value.replace(/\D/g, '');
+      if (c.length < 3 || selBanco.value) return;
+      Array.prototype.forEach.call(selBanco.options, function (o) {
+        if (o.getAttribute('data-codigo') === c.substr(0, 3)) selBanco.value = o.value;
+      });
+    });
+  }
+  var g = bloque && bloque.getAttribute('data-guardada');
+  if (g) { try { pintar(JSON.parse(g), true); } catch (e) {} }
 })();
 </script>
 

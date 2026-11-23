@@ -87,5 +87,6 @@ try {
   <button type="button" class="login-instalar" data-instalar-app hidden><?= icono('telefono', 15) ?>Instalar la app en este celular</button>
   <p class="login-pie">¿Te olvidaste la contraseña? Pedile a un administrador que te cargue una nueva.</p>
 </main>
+<script>try { sessionStorage.removeItem('fin_pantallas'); } catch (e) {}</script>
 </body>
 </html>

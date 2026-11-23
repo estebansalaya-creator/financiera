@@ -30,7 +30,9 @@
 --                          sacar un préstamo de otro tipo.
 --    comision_reglas ..... escalas: por tipo de asociado y monto del
 --                          préstamo, con % normal y % con telemarketing
---                          (porcentaje_tm). Sin vendedor vale para todos;
+--                          (porcentaje_tm; vacío: el % por la fracción
+--                          tipos_asociado.pct_telemarketing, configurable
+--                          por tipo). Sin vendedor vale para todos;
 --                          con vendedor, es una excepción suya y gana.
 --
 --  LAS REGLAS DE JUNIO
@@ -175,7 +177,22 @@ BEGIN
     -- 5. escalas de comisión ----------------------------------------------
     IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = v_db AND TABLE_NAME = 'comision_reglas' AND COLUMN_NAME = 'porcentaje_tm') THEN
         ALTER TABLE comision_reglas
-            ADD COLUMN porcentaje_tm DECIMAL(9,6) NULL COMMENT 'El % con telemarketing (NULL: el mismo)' AFTER porcentaje;
+            ADD COLUMN porcentaje_tm DECIMAL(9,6) NULL COMMENT 'El % con telemarketing (NULL: porcentaje x tipos_asociado.pct_telemarketing)' AFTER porcentaje;
+    END IF;
+
+    -- Lo que se cobra con telemarketing, configurable por tipo de asociado.
+    -- Al crearla toma la proporción de las escalas generales que ya tengan
+    -- su % de telemarketing (p.ej. NACION 18 % / 9 % -> 0,5); si no, 1.
+    IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = v_db AND TABLE_NAME = 'tipos_asociado' AND COLUMN_NAME = 'pct_telemarketing') THEN
+        ALTER TABLE tipos_asociado
+            ADD COLUMN pct_telemarketing DECIMAL(6,4) NOT NULL DEFAULT 1.0000
+                COMMENT 'Fracción de la comisión que se cobra si la venta vino por telemarketing (1 = la misma, 0.5 = la mitad)' AFTER alicuota_iva;
+        UPDATE tipos_asociado t
+          JOIN (SELECT id_tipo_asociado, MIN(porcentaje_tm / porcentaje) AS f
+                  FROM comision_reglas
+                 WHERE activo = 1 AND id_vendedor IS NULL AND porcentaje > 0 AND porcentaje_tm IS NOT NULL
+                 GROUP BY id_tipo_asociado) g ON g.id_tipo_asociado = t.id_tipo_asociado
+           SET t.pct_telemarketing = ROUND(g.f, 4);
     END IF;
 
     -- Una sola vez: si todavía no hay escalas generales con % de telemarketing.
@@ -507,9 +524,13 @@ BEGIN
             -- vendedor); con telemarketing, su % de telemarketing.
             SET v_id_regla = fn_comision_regla(p_id_vendedor, p_id_tipo_asociado, p_plazo, p_capital, p_fecha, p_telemarketing);
             IF v_id_regla IS NOT NULL THEN
-                SELECT IF(p_telemarketing = 1, COALESCE(porcentaje_tm, porcentaje), porcentaje), base_calculo
+                SELECT IF(p_telemarketing = 1,
+                          COALESCE(r.porcentaje_tm, ROUND(r.porcentaje * COALESCE(t.pct_telemarketing, 1), 6)),
+                          r.porcentaje), r.base_calculo
                   INTO v_com_pct, v_base_tipo
-                  FROM comision_reglas WHERE id_regla = v_id_regla;
+                  FROM comision_reglas r
+                  LEFT JOIN tipos_asociado t ON t.id_tipo_asociado = r.id_tipo_asociado
+                 WHERE r.id_regla = v_id_regla;
             END IF;
         END IF;
 
@@ -569,7 +590,8 @@ DELIMITER ;
 -- ---------------------------------------------------------------------
 -- 8.1 Las escalas activas por tipo de asociado (general y excepciones).
 SELECT t.codigo AS tipo, COALESCE(v.codigo, '(todos)') AS vendedor, r.monto_desde, r.monto_hasta,
-       ROUND(r.porcentaje * 100, 2) AS pct, ROUND(r.porcentaje_tm * 100, 2) AS pct_tm, r.vigencia_desde
+       ROUND(r.porcentaje * 100, 2) AS pct,
+       ROUND(COALESCE(r.porcentaje_tm, r.porcentaje * t.pct_telemarketing) * 100, 2) AS pct_tm, r.vigencia_desde
   FROM comision_reglas r
   JOIN tipos_asociado t ON t.id_tipo_asociado = r.id_tipo_asociado
   LEFT JOIN vendedores v ON v.id_vendedor = r.id_vendedor
@@ -588,9 +610,10 @@ SELECT 'repartición sin organismo', nombre, 1 FROM reparticiones WHERE id_organ
 --     operaciones cuyo % no es el de la escala que les toca hoy.
 SELECT 'comisión distinta de la escala' AS control, ci.archivo, ci.fila_origen, v.codigo AS vendedor, ci.tipo_asociado,
        ci.telemarketing, ci.monto, ROUND(ci.porcentaje * 100, 2) AS pct_junio,
-       ROUND(IF(ci.telemarketing = 1, COALESCE(r.porcentaje_tm, r.porcentaje), r.porcentaje) * 100, 2) AS pct_escala
+       ROUND(IF(ci.telemarketing = 1, COALESCE(r.porcentaje_tm, r.porcentaje * t.pct_telemarketing), r.porcentaje) * 100, 2) AS pct_escala
   FROM comisiones_importadas ci
   JOIN vendedores v ON v.id_vendedor = ci.id_vendedor
   LEFT JOIN comision_reglas r ON r.id_regla = fn_comision_regla(ci.id_vendedor, ci.id_tipo_asociado, 1, ci.monto, ci.fecha, ci.telemarketing)
+  LEFT JOIN tipos_asociado t ON t.id_tipo_asociado = r.id_tipo_asociado
  WHERE r.id_regla IS NULL
-    OR ABS(IF(ci.telemarketing = 1, COALESCE(r.porcentaje_tm, r.porcentaje), r.porcentaje) - ci.porcentaje) > 0.0001;
+    OR ABS(IF(ci.telemarketing = 1, COALESCE(r.porcentaje_tm, r.porcentaje * t.pct_telemarketing), r.porcentaje) - ci.porcentaje) > 0.0001;

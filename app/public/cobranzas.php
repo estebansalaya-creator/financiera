@@ -120,12 +120,14 @@ $hayFiltros = $fNro !== '' || $fQ !== '' || $fDesde !== '' || $fHasta !== '' || 
 $orden = orden_grilla(['fecha' => 'r.fecha', 'recibo' => 'r.nro_recibo', 'cliente' => 'c.denominacion', 'medio' => 'CAST(r.medio AS CHAR)',
                        'importe' => 'r.importe', 'estado' => 'r.estado'], 'fecha', 'desc', 'r.id_recibo');
 
-// Lo de cada recibo que no está en la cabecera: sus préstamos y vendedores,
+// Lo de cada recibo que no está en la cabecera: sus préstamos y comercializadores,
 // y si alguno de sus préstamos tiene un pago posterior (entonces no se anula).
 $columnas = "r.id_recibo, r.nro_recibo, r.fecha, r.importe, r.medio, r.referencia, r.estado, r.id_lote, r.id_extracto,
              r.cuil_pagador, r.motivo_anulacion, r.anulado_el, c.id_cliente, c.denominacion, c.cuit, cf.nombre AS cuenta,
-             (SELECT GROUP_CONCAT(p.nro_prestamo ORDER BY p.id_prestamo SEPARATOR ', ')
-                FROM pagos g JOIN prestamos p ON p.id_prestamo = g.id_prestamo WHERE g.id_recibo = r.id_recibo) AS prestamos,
+             CONCAT_WS(', ', (SELECT GROUP_CONCAT(p.nro_prestamo ORDER BY p.id_prestamo SEPARATOR ', ')
+                                FROM pagos g JOIN prestamos p ON p.id_prestamo = g.id_prestamo WHERE g.id_recibo = r.id_recibo),
+                       " . (columna_existe('cuotas_sociales_pagos', 'id_recibo')
+                            ? "IF(EXISTS (SELECT 1 FROM cuotas_sociales_pagos s WHERE s.id_recibo = r.id_recibo), 'Cuota social', NULL)" : 'NULL') . ") AS prestamos,
              (SELECT MIN(g.id_prestamo) FROM pagos g WHERE g.id_recibo = r.id_recibo) AS id_prestamo,
              (SELECT COUNT(*) FROM pagos g WHERE g.id_recibo = r.id_recibo) AS n_prestamos,
              (SELECT SUM(g.modo = 'CANCELACION') FROM pagos g WHERE g.id_recibo = r.id_recibo) AS cancelaciones,
@@ -176,7 +178,7 @@ try {
                                         ($hayFiltros ? 'Filtrado · ' : '') . num($total) . ' recibos · generado el ' . date('d/m/Y H:i'))
             ->tabla(
                 [['Fecha', 'fecha', 12], ['Recibo', 'texto', 17], ['Cliente', 'texto', 32], ['CUIT/CUIL', 'texto', 15], ['Préstamos', 'texto', 22],
-                 ['Vendedor', 'texto', 20], ['Medio', 'texto', 14], ['Referencia', 'texto', 20], ['Origen', 'texto', 18], ['Cuenta', 'texto', 22],
+                 ['Comercializador', 'texto', 20], ['Medio', 'texto', 14], ['Referencia', 'texto', 20], ['Origen', 'texto', 18], ['Cuenta', 'texto', 22],
                  ['Estado', 'texto', 10], ['Motivo de anulación', 'texto', 30], ['Importe', 'moneda', 15]],
                 array_map(function ($r) {
                     return [$r['fecha'], $r['nro_recibo'], $r['denominacion'], cuit_fmt($r['cuit']), (string) $r['prestamos'], (string) $r['vendedor'],
@@ -239,7 +241,7 @@ mensajes($errores);
       <select name="medio" class="filtro <?= $fMedio !== '' ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(MEDIOS_PAGO, $fMedio, 'Todos') ?></select></label>
     <label class="filtro-campo"><span class="filtro-lbl">Origen</span>
       <select name="origen" class="filtro <?= $fOrigen !== '' ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(ORIGENES_RECIBO, $fOrigen, 'Todos') ?></select></label>
-    <label class="filtro-campo"><span class="filtro-lbl">Vendedor</span>
+    <label class="filtro-campo"><span class="filtro-lbl">Comercializador</span>
       <select name="vendedor" class="filtro <?= $fVend ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $fVend ?: '', 'Todos') ?></select></label>
     <label class="filtro-campo"><span class="filtro-lbl">Importe desde</span>
       <input type="text" name="imp_desde" value="<?= h(get_str('imp_desde')) ?>" size="10" class="filtro" inputmode="decimal" placeholder="0,00"></label>

@@ -5,6 +5,7 @@ require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/comisiones_escalas.php';
 require __DIR__ . '/../inc/gastos.php';
+require __DIR__ . '/../inc/cuota_social.php';
 
 // ---------------------------------------------------------------------
 // Tipos de asociado y tasas (configuración; antes «productos»)
@@ -14,27 +15,28 @@ require __DIR__ . '/../inc/gastos.php';
 //   tipos_asociado.php?id=N&solapa=tasas      sus tasas (&nueva=1: la nueva)
 //   tipos_asociado.php?id=N&solapa=escalas    sus escalas de comisión
 //                                             (&escala=M o &escala=nueva)
-//   tipos_asociado.php?id=N&solapa=excepciones  los vendedores que cobran distinto
+//   tipos_asociado.php?id=N&solapa=excepciones  los comercializadores que cobran distinto
 //   tipos_asociado.php?id=N&solapa=gastos     sus gastos al liquidar (&gasto=M
 //                                             o &gasto=nuevo; &copiar=1: traer
 //                                             los de otro tipo)
 // El tipo de asociado (NACION, REGGIO DC, HABERES ACTIVOS…, los de las
 // planillas de comisiones) define los plazos y montos, la tasa y la
-// comisión del vendedor. El cliente tiene uno habitual y cada solicitud y
+// comisión del comercializador. El cliente tiene uno habitual y cada solicitud y
 // préstamo guarda el suyo.
 // Las tasas no se editan: se carga una nueva con su vigencia y la anterior
 // queda como historial (los préstamos guardan la tasa con la que se
 // liquidaron). Una tasa se puede borrar solo si ningún préstamo la usó.
 // Las escalas de comisión (inc/comisiones_escalas.php) son las generales
-// del tipo; las excepciones de un vendedor se cargan en su ficha.
+// del tipo; las excepciones de un comercializador se cargan en su ficha.
 // Tabla de configuración: sin Excel ni PDF (criterio de gestion_adm).
 // ---------------------------------------------------------------------
 
 const DESTINATARIOS = ['AMBOS' => 'Personas y empresas', 'F' => 'Personas físicas', 'J' => 'Empresas'];
 
-const SOLAPAS_TIPO = ['datos', 'tasas', 'escalas', 'gastos', 'excepciones'];
+const SOLAPAS_TIPO = ['datos', 'tasas', 'escalas', 'gastos', 'cuota', 'excepciones'];
 
 $errores = [];
+$csForm  = null;
 $id      = (int) get_str('id');
 $nuevo   = get_str('nuevo') === '1';
 $fEstado = in_array(get_str('estado'), ['0', 'todos'], true) ? get_str('estado') : '1';
@@ -94,13 +96,21 @@ if (es_post()) {
             'monto_min'       => post_str('monto_min'),
             'monto_max'       => post_str('monto_max'),
             'alicuota_iva'    => post_str('alicuota_iva'),
+            'pct_telemarketing' => post_str('pct_telemarketing'),
+            'punitorio_modo'  => post_str('punitorio_modo') === 'FIJO' ? 'FIJO' : 'TASA',
+            'punitorio_fijo'  => post_str('punitorio_fijo'),
             'activo'          => isset($_POST['activo']) ? 1 : 0,
         ];
+        $punFijo = $form['punitorio_fijo'] === '' ? null : leer_num($form['punitorio_fijo']);
+        if ($form['punitorio_modo'] === 'FIJO' && ($punFijo === null || $punFijo <= 0)) {
+            $errores[] = 'Con punitorio fijo, cargá el importe por mes de atraso.';
+        }
         $pmin = leer_num($form['plazo_min']);
         $pmax = leer_num($form['plazo_max']);
         $mmin = leer_num($form['monto_min']) ?? 0.0;
         $mmax = leer_num($form['monto_max']);
         $iva  = leer_num($form['alicuota_iva']);
+        $ptm  = $form['pct_telemarketing'] === '' ? 100.0 : leer_num($form['pct_telemarketing']);
 
         if (!preg_match('/^[A-Z0-9_]{1,20}$/', $form['codigo'])) {
             $errores[] = 'El código va en mayúsculas, sin espacios, hasta 20 caracteres (letras, números y _).';
@@ -120,21 +130,32 @@ if (es_post()) {
         if ($iva === null || $iva < 0 || $iva > 100) {
             $errores[] = 'El IVA sobre intereses va en %, entre 0 y 100 (normalmente 21).';
         }
+        if ($ptm === null || $ptm < 0 || $ptm > 100) {
+            $errores[] = 'Lo que se cobra con telemarketing va en % de la comisión, entre 0 y 100 (100: la misma; 50: la mitad).';
+        }
 
         if (!$errores) {
             $datos = [$form['codigo'], $form['nombre'], $form['destinatario'], (int) $pmin, (int) $pmax,
-                      round($mmin, 2), round($mmax, 2), round($iva / 100, 4), $form['activo']];
+                      round($mmin, 2), round($mmax, 2), round($iva / 100, 4), round($ptm / 100, 4), $form['activo']];
             try {
                 if ($id > 0) {
                     q('UPDATE tipos_asociado SET codigo=?, nombre=?, destinatario=?, plazo_min=?, plazo_max=?, monto_min=?,
-                              monto_max=?, alicuota_iva=?, activo=? WHERE id_tipo_asociado=?',
+                              monto_max=?, alicuota_iva=?, pct_telemarketing=?, activo=? WHERE id_tipo_asociado=?',
                       array_merge($datos, [$id]));
+                    if (columna_existe('tipos_asociado', 'punitorio_modo')) {
+                        q('UPDATE tipos_asociado SET punitorio_modo = ?, punitorio_fijo = ? WHERE id_tipo_asociado = ?',
+                          [$form['punitorio_modo'], $form['punitorio_modo'] === 'FIJO' ? round((float) $punFijo, 2) : null, $id]);
+                    }
                     flash('ok', 'Tipo de asociado ' . $form['codigo'] . ' guardado.');
                 } else {
                     q("INSERT INTO tipos_asociado (codigo, nombre, destinatario, plazo_min, plazo_max, monto_min, monto_max,
-                                                  alicuota_iva, activo, sistema_amort)
-                       VALUES (?,?,?,?,?,?,?,?,?,'FRANCES')", $datos);
+                                                  alicuota_iva, pct_telemarketing, activo, sistema_amort)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,'FRANCES')", $datos);
                     $id = (int) db()->lastInsertId();
+                    if (columna_existe('tipos_asociado', 'punitorio_modo')) {
+                        q('UPDATE tipos_asociado SET punitorio_modo = ?, punitorio_fijo = ? WHERE id_tipo_asociado = ?',
+                          [$form['punitorio_modo'], $form['punitorio_modo'] === 'FIJO' ? round((float) $punFijo, 2) : null, $id]);
+                    }
                     flash('ok', 'Tipo de asociado ' . $form['codigo'] . ' creado. Ahora cargale las tasas y las escalas de comisión.');
                 }
                 redirigir('tipos_asociado.php?id=' . $id . ($form && $nuevo ? '&solapa=tasas&nueva=1' : ''));
@@ -324,6 +345,12 @@ if (es_post()) {
         } catch (Throwable $e) {
             $errores[] = mensaje_bd($e);
         }
+    } elseif (strncmp($accion, 'cs_', 3) === 0 && $id > 0) {
+        try {
+            $errores = cs_valores_acciones($id, $csForm) ?? [];
+        } catch (Throwable $e) {
+            $errores[] = mensaje_bd($e);
+        }
     }
 }
 
@@ -443,7 +470,7 @@ if ($id === 0 && !$nuevo) {
     $sinEscala = count(array_filter($lista, function ($p) { return $p['activo'] && !$p['n_escalas']; }));
     if ($sinEscala) {
         alerta($sinEscala . ($sinEscala === 1 ? ' tipo de asociado activo no tiene' : ' tipos de asociado activos no tienen')
-               . ' escala de comisión vigente: sus préstamos no generan comisión salvo que el vendedor tenga una excepción.', 'warning');
+               . ' escala de comisión vigente: sus préstamos no generan comisión salvo que el comercializador tenga una excepción.', 'warning');
     }
     ?>
     <div class="card">
@@ -509,12 +536,12 @@ if ($id === 0 && !$nuevo) {
                   <?= estado('Sin escala', $p['activo'] ? 'warn' : 'neutro') ?>
                 <?php elseif ((int) $p['n_escalas'] === 1): ?>
                   <?= h(escala_pct_campo($p['pct'])) ?> %
-                  <span class="segunda-linea">telemarketing <?= h(escala_pct_campo($p['pct_tm'] ?? $p['pct'])) ?> %</span>
+                  <span class="segunda-linea">telemarketing <?= h(escala_pct_campo(escala_tm_efectivo($p['pct'], $p['pct_tm'], $p['pct_telemarketing'] ?? 1))) ?> %</span>
                 <?php else: ?>
                   <?= num($p['n_escalas']) ?> escalas por monto
                 <?php endif; ?>
                 <?php if ((int) $p['n_excepciones']): ?>
-                  <span class="segunda-linea"><?= num($p['n_excepciones']) ?> <?= (int) $p['n_excepciones'] === 1 ? 'vendedor con excepción' : 'vendedores con excepción' ?></span>
+                  <span class="segunda-linea"><?= num($p['n_excepciones']) ?> <?= (int) $p['n_excepciones'] === 1 ? 'comercializador con excepción' : 'comercializadores con excepción' ?></span>
                 <?php endif; ?>
               </td>
               <td class="td-right" data-orden="<?= h($p['n_clientes']) ?>"><?= num($p['n_clientes']) ?></td>
@@ -538,10 +565,13 @@ $v = $form ?? ($tipo ? [
     'codigo' => $tipo['codigo'], 'nombre' => $tipo['nombre'], 'destinatario' => $tipo['destinatario'],
     'plazo_min' => $tipo['plazo_min'], 'plazo_max' => $tipo['plazo_max'],
     'monto_min' => monto_campo($tipo['monto_min']), 'monto_max' => monto_campo($tipo['monto_max']),
-    'alicuota_iva' => pct_campo($tipo['alicuota_iva']),
+    'alicuota_iva' => pct_campo($tipo['alicuota_iva']), 'pct_telemarketing' => pct_campo($tipo['pct_telemarketing'] ?? 1),
+    'punitorio_modo' => $tipo['punitorio_modo'] ?? 'TASA',
+    'punitorio_fijo' => isset($tipo['punitorio_fijo']) ? monto_campo($tipo['punitorio_fijo']) : '',
     'activo' => (int) $tipo['activo'],
 ] : ['codigo' => '', 'nombre' => '', 'destinatario' => 'AMBOS', 'plazo_min' => '1', 'plazo_max' => '60',
-     'monto_min' => '0', 'monto_max' => '', 'alicuota_iva' => '21', 'activo' => 1]);
+     'monto_min' => '0', 'monto_max' => '', 'alicuota_iva' => '21', 'pct_telemarketing' => '100',
+     'punitorio_modo' => 'TASA', 'punitorio_fijo' => '', 'activo' => 1]);
 
 titulo($tipo ? $tipo['nombre'] : 'Nuevo tipo de asociado',
        $tipo ? 'Código ' . $tipo['codigo'] . ' · ' . num($tipo['n_clientes']) . ($tipo['n_clientes'] == 1 ? ' cliente' : ' clientes')
@@ -562,7 +592,8 @@ if ($tipo) {
         'escalas'     => ['Escalas de comisión', 'tipos_asociado.php?id=' . $id . '&solapa=escalas', $vigentes($escalas)],
         'gastos'      => ['Gastos', 'tipos_asociado.php?id=' . $id . '&solapa=gastos',
                           count(array_filter($gastos, function ($g) { return (int) $g['activo'] && (int) $g['concepto_activo']; }))],
-        'excepciones' => ['Excepciones de vendedores', 'tipos_asociado.php?id=' . $id . '&solapa=excepciones', count($excepciones)],
+        'cuota'       => ['Cuota social', 'tipos_asociado.php?id=' . $id . '&solapa=cuota', (int) $tipo['paga_cuota_social'] ? null : 'no'],
+        'excepciones' => ['Excepciones de comercializadores', 'tipos_asociado.php?id=' . $id . '&solapa=excepciones', count($excepciones)],
     ], $solapa);
 }
 
@@ -622,8 +653,37 @@ if (!$tipo || $solapa === 'datos'):
           <input id="alicuota_iva" name="alicuota_iva" value="<?= h($v['alicuota_iva']) ?>" inputmode="decimal" class="derecha" required>
           <span class="campo-ayuda">%</span>
         </div>
+        <div class="campo" style="--span:3">
+          <label for="pct_telemarketing">Comisión con telemarketing</label>
+          <input id="pct_telemarketing" name="pct_telemarketing" value="<?= h($v['pct_telemarketing']) ?>" inputmode="decimal" class="derecha" placeholder="100">
+          <span class="campo-ayuda">% de la comisión normal (100: la misma; 50: la mitad). Una escala o excepción con su propio % de telemarketing manda sobre este.</span>
+        </div>
+        <?php if (columna_existe('tipos_asociado', 'punitorio_modo')): ?>
+        <div class="campo" style="--span:3">
+          <label for="punitorio_modo">Punitorio</label>
+          <select id="punitorio_modo" name="punitorio_modo" onchange="document.getElementById('campo_pun_fijo').hidden = this.value !== 'FIJO'">
+            <?= opciones(['TASA' => 'Por tasa (solapa Tasas)', 'FIJO' => 'Monto fijo por mes de atraso'], $v['punitorio_modo'] ?? 'TASA') ?>
+          </select>
+        </div>
+        <div class="campo" style="--span:2" id="campo_pun_fijo" <?= ($v['punitorio_modo'] ?? 'TASA') === 'FIJO' ? '' : 'hidden' ?>>
+          <label for="punitorio_fijo">Por mes o fracción</label>
+          <input id="punitorio_fijo" name="punitorio_fijo" value="<?= h($v['punitorio_fijo'] ?? '') ?>" inputmode="decimal" class="derecha" placeholder="458,00">
+          <span class="campo-ayuda">$ por cuota impaga, IVA incluido</span>
+        </div>
+        <?php endif; ?>
       </div>
     </div>
+    <?php if ($tipo && array_key_exists('id_grilla', $tipo)):
+          $grT = $tipo['id_grilla'] ? q1('SELECT g.nombre, g.activo, (SELECT COUNT(*) FROM grillas_celdas c WHERE c.id_grilla = g.id_grilla) AS n FROM grillas g WHERE g.id_grilla = ?', [(int) $tipo['id_grilla']]) : null; ?>
+    <div class="bloque">
+      <div class="bloque-titulo">Grilla de valores</div>
+      <p class="campo-ayuda" style="margin:0">
+        <?php if ($grT): ?>La cuota sale de la grilla <a href="grillas.php?id=<?= (int) $tipo['id_grilla'] ?>"><?= h($grT['nombre']) ?></a>
+          (<?= num((int) $grT['n']) ?> valores<?= (int) $grT['activo'] ? '' : ', INACTIVA' ?>): si el monto y las cuotas están en ella, cuota fija IVA incluido; si no, la tasa de la solapa Tasas.
+        <?php else: ?>Sin grilla: la cuota sale de la tasa de la solapa Tasas. Se asigna en <a href="grillas.php">Grillas de valores</a>.<?php endif; ?>
+      </p>
+    </div>
+    <?php endif; ?>
     <?php if ($gastosTipo !== null && $tipo): $gs = $gastosTipo[$id] ?? []; ?>
     <div class="bloque">
       <div class="bloque-titulo">Gastos que se cobran al liquidar</div>
@@ -769,15 +829,15 @@ elseif ($solapa === 'escalas'):
     $huecos = escalas_huecos($escalas, (float) $tipo['monto_min'], (float) $tipo['monto_max']);
 ?>
 <div class="card">
-  <?= card_head('Escalas de comisión', 'para todos los vendedores · por tramo del monto del préstamo',
+  <?= card_head('Escalas de comisión', 'para todos los comercializadores · por tramo del monto del préstamo',
                 boton('Nueva escala', 'primary', 'tipos_asociado.php?id=' . $id . '&solapa=escalas&escala=nueva', 'agregar', false, true)) ?>
   <div class="bloque">
-    <p class="nota-arbol">Al liquidar un préstamo de este tipo se usa la escala activa y vigente cuyo tramo incluye el monto prestado; si la operación vino por telemarketing, con su % de telemarketing. Si el vendedor tiene una excepción para este tipo y ese monto, se usa la suya. El % queda guardado en el préstamo: cambiar una escala no modifica lo ya liquidado. Para un aumento, cerrá la escala con la vigencia «hasta» y cargá otra desde la fecha nueva.</p>
+    <p class="nota-arbol">Al liquidar un préstamo de este tipo se usa la escala activa y vigente cuyo tramo incluye el monto prestado; si la operación vino por telemarketing, con su % de telemarketing o, si no lo tiene, con el que fija este tipo en la ficha (<?= h(pct_campo($tipo['pct_telemarketing'] ?? 1)) ?> % de la comisión). Si el comercializador tiene una excepción para este tipo y ese monto, se usa la suya. El % queda guardado en el préstamo: cambiar una escala no modifica lo ya liquidado. Para un aumento, cerrá la escala con la vigencia «hasta» y cargá otra desde la fecha nueva.</p>
     <?php if ($huecos && $escalas): ?>
       <?php alerta('Hoy no tienen escala los préstamos ' . implode(' y ', array_map(function ($x) { return escala_tramo_frase($x[0], $x[1]); }, $huecos))
-                   . ': no generan comisión, salvo que el vendedor tenga una excepción.', 'warning'); ?>
+                   . ': no generan comisión, salvo que el comercializador tenga una excepción.', 'warning'); ?>
     <?php elseif (!$escalas): ?>
-      <?php alerta('Sin escalas: los préstamos de este tipo no generan comisión, salvo que el vendedor tenga una excepción.', 'warning'); ?>
+      <?php alerta('Sin escalas: los préstamos de este tipo no generan comisión, salvo que el comercializador tenga una excepción.', 'warning'); ?>
     <?php endif; ?>
   </div>
   <?= escalas_grilla($escalas, 'tipos_asociado.php?id=' . $id . '&solapa=escalas', false, 'escala|escalas',
@@ -945,28 +1005,31 @@ elseif ($solapa === 'gastos'):
 </div>
 <?php
     endif;
-// ── Solapa Excepciones de vendedores ─────────────────────────────────────
+// ── Solapa Cuota social ──────────────────────────────────────────────────
+elseif ($solapa === 'cuota'):
+    echo cs_valores_tarjeta($id, $tipo, $csForm, []);
+// ── Solapa Excepciones de comercializadores ─────────────────────────────────────
 else:
 ?>
 <div class="card">
-  <?= card_head('Excepciones de vendedores', 'los que cobran distinto en este tipo: se cargan en la ficha del vendedor') ?>
-  <?= barra_local('tipos_asociado.php?id=' . $id . '&solapa=excepciones', 'Vendedor o monto…') ?>
+  <?= card_head('Excepciones de comercializadores', 'los que cobran distinto en este tipo: se cargan en la ficha del comercializador') ?>
+  <?= barra_local('tipos_asociado.php?id=' . $id . '&solapa=excepciones', 'Comercializador o monto…') ?>
   <div class="data-table-wrap">
     <table class="data-table" data-local data-paginada data-unidad="excepción|excepciones">
-      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Vendedor</th><th class="th-right">Desde</th><th class="th-right">Hasta</th>
+      <thead><tr><th class="col-acciones" data-no-sort>Acciones</th><th>Comercializador</th><th class="th-right">Desde</th><th class="th-right">Hasta</th>
         <th class="th-right">% comisión</th><th class="th-right">% con telemarketing</th><th>Vigencia</th></tr></thead>
       <tbody>
       <?php if (!$excepciones): ?>
-        <tr><td colspan="7" class="no-data">Todos los vendedores cobran por la escala general.</td></tr>
+        <tr><td colspan="7" class="no-data">Todos los comercializadores cobran por la escala general.</td></tr>
       <?php endif; ?>
       <?php foreach ($excepciones as $x): ?>
         <tr>
-          <td><div class="acciones"><?= btn_accion('editar', 'vendedores.php?edit=' . (int) $x['id_vendedor'] . '&solapa=comisiones&escala=' . (int) $x['id_regla'], 'Editar en la ficha del vendedor') ?></div></td>
+          <td><div class="acciones"><?= btn_accion('editar', 'vendedores.php?edit=' . (int) $x['id_vendedor'] . '&solapa=comisiones&escala=' . (int) $x['id_regla'], 'Editar en la ficha del comercializador') ?></div></td>
           <td class="td-fuerte"><?= h($x['vendedor_nombre']) ?><span class="segunda-linea mono"><?= h($x['vendedor_codigo']) ?></span></td>
           <td class="td-right" data-orden="<?= h($x['monto_desde']) ?>"><?= money($x['monto_desde']) ?></td>
           <td class="td-right" data-orden="<?= h($x['monto_hasta']) ?>"><?= (float) $x['monto_hasta'] >= ESCALA_MONTO_MAX ? '<span class="td-muted">sin tope</span>' : money($x['monto_hasta']) ?></td>
           <td class="td-right td-fuerte" data-orden="<?= h($x['porcentaje']) ?>"><?= h(escala_pct_campo($x['porcentaje'])) ?> %</td>
-          <td class="td-right" data-orden="<?= h($x['porcentaje_tm'] ?? $x['porcentaje']) ?>"><?= $x['porcentaje_tm'] === null ? '<span class="td-muted">el mismo</span>' : h(escala_pct_campo($x['porcentaje_tm'])) . ' %' ?></td>
+          <td class="td-right" data-orden="<?= h(escala_tm_efectivo($x['porcentaje'], $x['porcentaje_tm'], $tipo['pct_telemarketing'] ?? 1)) ?>"><?= escala_tm_celda($x['porcentaje'], $x['porcentaje_tm'], $tipo['pct_telemarketing'] ?? 1) ?></td>
           <td data-orden="<?= h($x['vigencia_desde']) ?>">desde el <?= h(fecha($x['vigencia_desde'])) ?><?= $x['vigencia_hasta'] ? '<span class="segunda-linea">hasta el ' . h(fecha($x['vigencia_hasta'])) . '</span>' : '' ?></td>
         </tr>
       <?php endforeach; ?>

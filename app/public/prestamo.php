@@ -25,7 +25,7 @@ if (es_post() && post_str('accion') === 'anular') {
         while ($st->nextRowset()) {
         }
         $st->closeCursor();
-        flash('ok', 'Préstamo anulado. La comisión del vendedor se revirtió.');
+        flash('ok', 'Préstamo anulado. La comisión del comercializador se revirtió.');
         redirigir('prestamo.php?id=' . $id);
     } catch (Throwable $e) {
         $errores[] = mensaje_bd($e);
@@ -173,7 +173,17 @@ mensajes($errores);
       <dt>Cliente</dt><dd><a href="cliente.php?id=<?= (int) $p['id_cliente'] ?>"><?= h($p['denominacion']) ?></a> <span class="mono"><?= h(cuit_fmt($p['cuit'])) ?></span></dd>
       <dt>Tipo de asociado</dt><dd><?= h($p['tipo_asociado']) ?></dd>
       <dt>Liquidación</dt><dd><?= h(fecha($p['fecha_liquidacion'])) ?> · primer vencimiento <?= h(fecha($p['fecha_primer_vto'])) ?></dd>
-      <dt>Tasas</dt><dd>TNA <?= pct($p['tna']) ?> · TEA <?= pct(pow(1 + (float) $p['tna'] / 12, 12) - 1) ?> · punitoria <?= pct($p['tasa_punitoria']) ?> · IVA <?= pct($p['alicuota_iva'], 0) ?></dd>
+      <?php $punTipo = columna_existe('tipos_asociado', 'punitorio_modo')
+                ? q1('SELECT punitorio_modo, punitorio_fijo FROM tipos_asociado WHERE id_tipo_asociado = ?', [(int) $p['id_tipo_asociado']]) : null;
+            $refi = $p['estado'] === 'VIGENTE' ? refinanciacion_estado((int) $p['id_prestamo']) : null; ?>
+      <dt>Tasas</dt><dd>TNA <?= pct($p['tna']) ?> · TEA <?= pct(pow(1 + (float) $p['tna'] / 12, 12) - 1) ?> · <?= ($punTipo['punitorio_modo'] ?? 'TASA') === 'FIJO'
+            ? 'punitorio ' . money($punTipo['punitorio_fijo']) . ' por mes de atraso (IVA incluido)' : 'punitoria ' . pct($p['tasa_punitoria']) ?> · IVA <?= pct($p['alicuota_iva'], 0) ?></dd>
+      <?php if ($refi): ?>
+      <dt>Refinanciación</dt><dd><?= $refi['necesita'] === null ? 'No se puede refinanciar: no hay condición para ' . (int) $p['plazo'] . ' cuotas.'
+            : ($refi['puede'] ? estado('Puede refinanciar', 'ok') . ' ' : estado('Todavía no', 'warn') . ' ')
+              . h($refi['pagas'] . ' cuota' . ($refi['pagas'] === 1 ? ' paga' : 's pagas') . ' de ' . $refi['necesita'] . ' que pide un préstamo de '
+                  . $refi['plazo_regla'] . ' cuotas' . ($refi['puede'] ? '.' : ' (le faltan ' . ($refi['necesita'] - $refi['pagas']) . ').')) ?></dd>
+      <?php endif; ?>
       <?php $ctaDes = !empty($p['id_cuenta_fondos']) ? q1('SELECT id_cuenta_fondos, nombre FROM cuentas_fondos WHERE id_cuenta_fondos = ?', [(int) $p['id_cuenta_fondos']]) : null; ?>
       <dt>Desembolso</dt><dd><?= money($p['neto_desembolso']) ?> (gastos descontados <?= money($p['gastos_otorg']) ?>)<?php if ($ctaDes): ?>
         <span class="td-muted">· <?= h(strtolower(['TRANSFERENCIA' => 'Transferencia', 'CHEQUE' => 'Cheque', 'EFECTIVO' => 'Efectivo'][$p['medio_desembolso']] ?? (string) $p['medio_desembolso'])) ?>
@@ -207,7 +217,7 @@ mensajes($errores);
       <?php endif; ?>
       <dt>Total a pagar</dt><dd><?= money((float) $p['capital'] + (float) ($p['gastos_financiados'] ?? 0) + (float) $p['total_intereses'] + (float) $p['total_iva']) ?>
         <span class="td-muted">(intereses <?= money($p['total_intereses']) ?> · IVA <?= money($p['total_iva']) ?>)</span></dd>
-      <dt>Vendedor</dt><dd><?= $p['vendedor'] ? h($p['vendedor']) : '<span class="td-muted">sin vendedor</span>' ?></dd>
+      <dt>Comercializador</dt><dd><?= $p['vendedor'] ? h($p['vendedor']) : '<span class="td-muted">sin comercializador</span>' ?></dd>
       <dt>Comisión</dt><dd><?= $p['comision_monto'] !== null
           ? money($p['comision_monto']) . ' (' . pct($p['comision_pct']) . ($p['regla'] ? ' · ' . h($p['regla']) : ' · manual') . ')'
           : '<span class="td-muted">—</span>' ?></dd>
@@ -292,7 +302,7 @@ mensajes($errores);
   </div>
 
   <div class="card">
-    <?= card_head('Comisión del vendedor') ?>
+    <?= card_head('Comisión del comercializador') ?>
     <div class="data-table-wrap">
       <table class="data-table" data-sin-orden>
         <thead><tr><th data-no-sort>Fecha</th><th data-no-sort>Concepto</th><th class="th-right" data-no-sort>Base</th><th class="th-right" data-no-sort>%</th>

@@ -18,7 +18,7 @@ require __DIR__ . '/../inc/comisiones_escalas.php';
 //      confirmar y el motivo; con bloqueos, no deja.
 //   Llama a sp_liquidar_prestamo y guarda los controles en el préstamo.
 //   prestamo_nuevo.php?solicitud=N  liquida una solicitud APROBADA: cliente,
-//                                   tipo de asociado, monto, cuotas y vendedor vienen
+//                                   tipo de asociado, monto, cuotas y comercializador vienen
 //                                   de la solicitud y no se cambian. Las
 //                                   advertencias ya las aceptó el que aprobó.
 //                                   Al liquidar, la solicitud queda LIQUIDADA
@@ -354,8 +354,8 @@ mensajes($errores);
           <span class="campo-ayuda" id="tipo-ayuda"></span>
         </div>
         <div class="campo" style="--span:3">
-          <label for="vendedor">Vendedor</label>
-          <select id="vendedor" name="vendedor"<?= $bloq ?>><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $f['vendedor'], 'Sin vendedor') ?></select>
+          <label for="vendedor">Comercializador</label>
+          <select id="vendedor" name="vendedor"<?= $bloq ?>><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $f['vendedor'], 'Sin comercializador') ?></select>
         </div>
         <div class="campo" style="--span:3">
           <label for="monto">Monto a prestar <span class="req">*</span></label>
@@ -406,13 +406,13 @@ mensajes($errores);
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Total a pagar</span><strong><?= money($res['total_a_pagar']) ?></strong><span class="bcra-tarjeta-sub">intereses <?= money($res['total_intereses']) ?> · IVA <?= money($res['total_iva']) ?></span></div>
         <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Tasas</span><strong><?= pct($res['tna']) ?> TNA</strong><span class="bcra-tarjeta-sub">TEA <?= pct($res['tea']) ?><?= $cft !== null ? ' · CFT con IVA ' . pct($cft) : '' ?></span></div>
         <?php if ($comEst): ?>
-        <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Comisión del vendedor</span>
+        <div class="bcra-tarjeta"><span class="bcra-tarjeta-lbl">Comisión del comercializador</span>
           <?php if ($comEst['pct'] === null): ?>
             <strong>Sin comisión</strong><span class="bcra-tarjeta-sub">ninguna escala cubre este monto</span>
           <?php else: ?>
             <strong><?= money($comEst['monto']) ?></strong>
             <span class="bcra-tarjeta-sub"><?= h(escala_pct_campo($comEst['pct'])) ?> % · <?= $comEst['origen'] === 'manual' ? 'manual'
-                : ($comEst['origen'] === 'excepción' ? 'excepción del vendedor' : 'escala del tipo de asociado') ?><?= $f['telemarketing'] === '1' && $comEst['origen'] !== 'manual' ? ' (telemarketing)' : '' ?></span>
+                : ($comEst['origen'] === 'excepción' ? 'excepción del comercializador' : 'escala del tipo de asociado') ?><?= $f['telemarketing'] === '1' && $comEst['origen'] !== 'manual' ? ' (telemarketing)' : '' ?></span>
           <?php endif; ?>
         </div>
         <?php endif; ?>

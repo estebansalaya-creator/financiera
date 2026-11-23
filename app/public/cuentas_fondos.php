@@ -262,6 +262,33 @@ if (es_post()) {
                 }
             }
         }
+    } elseif ($accion === 'bancos_bcra') {
+        // El listado de entidades del BCRA (API pública de cheques): agrega
+        // las que faltan; a las que ya están no les cambia el nombre (puede
+        // haberse corregido a mano).
+        require_once __DIR__ . '/../inc/bcra.php';
+        [$st, $json, $err] = bcra_http(rtrim((string) cfg('bcra_cheques_url', 'https://api.bcra.gob.ar/cheques/v1.0'), '/') . '/entidades');
+        $lista = is_array($json['results'] ?? null) ? $json['results'] : [];
+        if ($err !== '' || !$lista) {
+            flash('danger', 'No se pudo traer el listado del BCRA' . ($err !== '' ? ': ' . $err : ' (respondió vacío).'));
+            redirigir('cuentas_fondos.php?solapa=bancos');
+        }
+        $chicas = ['De', 'La', 'Del', 'Y', 'Los', 'Las', 'El', 'En'];
+        $nuevos = 0;
+        foreach ($lista as $e) {
+            $cod = str_pad((string) (int) ($e['codigoEntidad'] ?? 0), 3, '0', STR_PAD_LEFT);
+            $nom = trim((string) ($e['denominacion'] ?? ''));
+            if ($cod === '000' || $nom === '') {
+                continue;
+            }
+            $nom = mb_convert_case(mb_strtolower($nom), MB_CASE_TITLE, 'UTF-8');
+            $nom = preg_replace_callback('/(?<=\s)(' . implode('|', $chicas) . ')(?=\s)/u', function ($m) { return mb_strtolower($m[1]); }, $nom);
+            $nom = preg_replace_callback('/\b(S\.?a\.?u?|S\.?r\.?l)\b\.?/u', function ($m) { return mb_strtoupper($m[0]); }, $nom);
+            q('INSERT IGNORE INTO bancos (codigo, nombre) VALUES (?, ?)', [$cod, mb_substr($nom, 0, 100)]);
+            $nuevos += (int) db()->query('SELECT ROW_COUNT()')->fetchColumn();
+        }
+        flash('ok', 'Listado del BCRA: ' . count($lista) . ' entidades, ' . $nuevos . ' nueva' . ($nuevos === 1 ? '' : 's') . ' agregada' . ($nuevos === 1 ? '' : 's') . '.');
+        redirigir('cuentas_fondos.php?solapa=bancos');
     } elseif (in_array($accion, ['banco_guardar', 'banco_activar', 'banco_desactivar', 'banco_borrar'], true)) {
         $solapa = 'bancos';
         $volver = 'cuentas_fondos.php?solapa=bancos';
@@ -656,7 +683,11 @@ mensajes($errores);
 <?php endif; ?>
 <div class="card">
   <?= card_head('Bancos', 'al cargar el CBU de una cuenta, el banco se elige solo',
-                boton('Nuevo banco', 'primary', 'cuentas_fondos.php?solapa=bancos&banco=nuevo', 'agregar', false, true)) ?>
+                '<form method="post" action="cuentas_fondos.php?solapa=bancos" class="form-en-linea">' . csrf_campo()
+                . '<input type="hidden" name="accion" value="bancos_bcra">'
+                . boton('Traer del BCRA', 'ghost', null, 'descargar', true, true, ['title' => 'Agrega las entidades del listado del BCRA que falten'])
+                . '</form> '
+                . boton('Nuevo banco', 'primary', 'cuentas_fondos.php?solapa=bancos&banco=nuevo', 'agregar', false, true)) ?>
   <?= barra_local('cuentas_fondos.php?solapa=bancos', 'Código o banco…',
                   filtro_select('estado', 'Estado', ['1' => 'Activos', '0' => 'Inactivos', 'todos' => 'Todos'], $fBco, '', $fBco !== '1'), $fBco !== '1') ?>
   <div class="data-table-wrap">

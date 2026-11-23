@@ -124,6 +124,8 @@ function layout_inicio(string $titulo, string $activo = ''): void
   </a>
   <?php if ($u): ?>
   <a href="index.php" class="header-boton" title="Volver al inicio" data-colapsar-menu><?= icono('casa', 14) ?><span class="hb-texto">Inicio</span></a>
+  <?php // Vuelve a la pantalla desde la que se llegó (assets\app.js, «Volver a la pantalla anterior»): aparece cuando hay una. ?>
+  <a href="#" id="btn-volver" class="header-boton oculto" title="Volver a la pantalla anterior (Esc)"><?= icono('volver', 14) ?><span class="hb-texto">Volver</span></a>
   <?php endif; ?>
   <div class="header-spacer"></div>
   <?php if ($u): ?>

@@ -209,7 +209,7 @@ if ($modoForm) {
             }
         }
         if ($vendPropio) {
-            $f['vendedor'] = (string) $vendPropio;                   // un vendedor carga a su nombre
+            $f['vendedor'] = (string) $vendPropio;                   // un comercializador carga a su nombre
         }
     } catch (Throwable $e) {
         $errores[] = error_amigable($e);
@@ -235,7 +235,7 @@ if ($modoForm) {
             $errores[] = 'El plazo va en cuotas enteras.';
         }
         if ($f['vendedor'] !== '' && !in_array((int) $f['vendedor'], array_map('intval', array_column($vendedores, 'id_vendedor')), true)) {
-            $errores[] = 'Elegí el vendedor de la lista.';
+            $errores[] = 'Elegí el comercializador de la lista.';
         }
         if (preg_match_all('/./su', $f['destino']) > 150) {
             $errores[] = 'El destino del préstamo: hasta 150 caracteres.';
@@ -476,11 +476,11 @@ if ($modoForm):
         </div>
         <div class="campo" style="--span:3">
           <?php if ($vendPropio): ?>
-            <span class="campo-label">Vendedor</span>
+            <span class="campo-label">Comercializador</span>
             <div class="campo-fijo"><strong><?= h(array_column($vendedores, 'nombre', 'id_vendedor')[$vendPropio] ?? 'Vos') ?></strong></div>
           <?php else: ?>
-            <label for="vendedor">Vendedor</label>
-            <select id="vendedor" name="vendedor"><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $f['vendedor'], 'Sin vendedor') ?></select>
+            <label for="vendedor">Comercializador</label>
+            <select id="vendedor" name="vendedor"><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $f['vendedor'], 'Sin comercializador') ?></select>
           <?php endif; ?>
         </div>
         <div class="campo" style="--span:3">
@@ -597,7 +597,7 @@ if ($modoForm):
     <?= $dato('TNA', pct($sol['tna'])) ?>
     <?= $dato('Neto a desembolsar', money($sol['neto_desembolso'])) ?>
     <?= $dato('Total a pagar', money($sol['total_a_pagar'])) ?>
-    <?= $dato('Vendedor', $sol['vendedor'] ? h($sol['vendedor']) . ((int) $sol['telemarketing'] ? ' · telemarketing' : '') : '<span class="td-muted">sin vendedor</span>') ?>
+    <?= $dato('Comercializador', $sol['vendedor'] ? h($sol['vendedor']) . ((int) $sol['telemarketing'] ? ' · telemarketing' : '') : '<span class="td-muted">sin comercializador</span>') ?>
     <?= $sol['destino'] ? $dato('Destino', h($sol['destino'])) : '' ?>
   </div>
   <?php if ($sol['observaciones']): ?>
@@ -671,7 +671,7 @@ if ($modoForm):
 </div>
 
 <div class="card" id="mensajes">
-  <?= card_head('Mensajes', 'los ven quien la cargó, el vendedor y quien la autoriza; avisan en el globito de Mensajes') ?>
+  <?= card_head('Mensajes', 'los ven quien la cargó, el comercializador y quien la autoriza; avisan en el globito de Mensajes') ?>
   <div class="chat-hilo-solicitud" data-chat-hilo data-solicitud="<?= $id ?>"></div>
 </div>
 

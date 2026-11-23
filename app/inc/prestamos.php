@@ -234,7 +234,40 @@ function prestamo_controles(array $cliente, float $valorCuota, bool $consultarBc
             $add('CUOTA_INGRESO', 'info', 'No tiene cargado el ingreso mensual: no se controla la relación cuota / ingreso.');
         }
     }
+
+    // Cuota máxima (Parámetros del sistema; 0 = sin tope)
+    $cuotaMax = (float) parametro('CUOTA_MAXIMA', '0');
+    if ($cuotaMax > 0 && $valorCuota > $cuotaMax) {
+        $add('CUOTA_MAXIMA', 'advertencia', 'La cuota (' . money($valorCuota) . ') supera la cuota máxima de ' . money($cuotaMax) . '.');
+    }
     return [$ctl, $filas];
+}
+
+/**
+ * Si un préstamo se puede refinanciar (Parámetros del sistema ›
+ * Condiciones de refinanciación): la condición de su plazo o, si no está,
+ * la del plazo menor más cercano. null si no hay condiciones cargadas.
+ * Devuelve ['pagas', 'necesita', 'plazo_regla', 'puede'].
+ */
+function refinanciacion_estado(int $idPrestamo): ?array
+{
+    try {
+        $p = q1("SELECT p.plazo, (SELECT COUNT(*) FROM cuotas c WHERE c.id_prestamo = p.id_prestamo AND c.estado = 'PAGADA') AS pagas
+                   FROM prestamos p WHERE p.id_prestamo = ?", [$idPrestamo]);
+        if (!$p) {
+            return null;
+        }
+        $r = q1('SELECT plazo, cuotas_pagas FROM refinanciacion_condiciones WHERE plazo <= ? ORDER BY plazo DESC LIMIT 1', [(int) $p['plazo']]);
+        if (!$r) {
+            return q1('SELECT 1 AS x FROM refinanciacion_condiciones LIMIT 1')
+                ? ['pagas' => (int) $p['pagas'], 'necesita' => null, 'plazo_regla' => null, 'puede' => false]
+                : null;
+        }
+        return ['pagas' => (int) $p['pagas'], 'necesita' => (int) $r['cuotas_pagas'], 'plazo_regla' => (int) $r['plazo'],
+                'puede' => (int) $p['pagas'] >= (int) $r['cuotas_pagas']];
+    } catch (PDOException $e) {
+        return null;                                        // sin sql\financiera_punitorios_parametros.sql
+    }
 }
 
 /** Corre un SP de consulta y devuelve todos sus resultsets. */

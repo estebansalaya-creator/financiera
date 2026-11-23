@@ -64,11 +64,16 @@ function tir_mensual(float $neto, array $cuotas): ?float
 try {
     $tipos = q(
         "SELECT p.*, EXISTS(SELECT 1 FROM tasas_vigencia t WHERE t.id_tipo_asociado = p.id_tipo_asociado
-                             AND t.vigencia_desde <= CURDATE()) AS con_tasa
+                             AND t.vigencia_desde <= CURDATE()) AS con_tasa,
+                EXISTS(SELECT 1 FROM grillas g WHERE g.id_grilla = p.id_grilla AND g.activo = 1) AS con_grilla
            FROM tipos_asociado p
           WHERE p.activo = 1
           ORDER BY p.nombre"
     );
+    // Solo se ofrecen los tipos con tasa vigente o con una grilla activa: sin
+    // ninguna de las dos no hay con qué simular (con grilla, la tasa sale de la cuota).
+    $hayTipos = (bool) $tipos;
+    $tipos = array_values(array_filter($tipos, function ($p) { return $p['con_tasa'] || $p['con_grilla']; }));
     foreach ($tipos as $p) {
         if ((int) $p['id_tipo_asociado'] === $fTipo) {
             $tipo = $p;
@@ -224,12 +229,11 @@ if ($res) {
     $acciones = boton('Exportar a Excel', 'excel', url_con(['export' => 'xlsx']), 'planilla')
               . boton('Generar PDF', 'pdf', url_con(['export' => 'pdf']), 'pdf', false, false, ['target' => '_blank', 'rel' => 'noopener']);
 }
-titulo('Simulador de préstamos', 'Cuota, total a pagar y cuadro de cuotas con la tasa vigente del tipo de asociado', $acciones);
+titulo('Simulador de préstamos', 'Cuota, total a pagar y cuadro de cuotas con la grilla o la tasa vigente del tipo de asociado', $acciones);
 mensajes($errores);
 
-$sinTasa = array_filter($tipos, function ($p) { return !$p['con_tasa']; });
-if ($tipos && count($sinTasa) === count($tipos)) {
-    alerta('Ningún tipo de asociado activo tiene tasa vigente: cargalas en Tipos de asociado y tasas para poder simular.', 'warning');
+if (!empty($hayTipos) && !$tipos) {
+    alerta('Ningún tipo de asociado activo tiene tasa vigente ni grilla: cargalas en Tipos de asociado y tasas o en Grillas para poder simular.', 'warning');
 }
 ?>
 
@@ -245,7 +249,7 @@ if ($tipos && count($sinTasa) === count($tipos)) {
               <option value="<?= (int) $p['id_tipo_asociado'] ?>" <?= (int) $p['id_tipo_asociado'] === $fTipo ? 'selected' : '' ?>
                       data-plazo="<?= h($p['plazo_min'] . ' a ' . $p['plazo_max'] . ' cuotas') ?>"
                       data-monto="<?= h(money($p['monto_min']) . ' a ' . money($p['monto_max'])) ?>">
-                <?= h($p['nombre']) ?><?= $p['con_tasa'] ? '' : ' (sin tasa vigente)' ?>
+                <?= h($p['nombre']) ?><?= $p['con_grilla'] ? ' (grilla)' : '' ?>
               </option>
             <?php endforeach; ?>
           </select>
@@ -312,7 +316,8 @@ if ($tipos && count($sinTasa) === count($tipos)) {
       <div><div class="dato-lbl">CFT TEA c/IVA</div><div class="dato-val"><?= $cft ? pct($cft['tea']) : '—' ?></div></div>
     </div>
     <div class="bloque" style="border-top:1px solid var(--border)">
-      <p class="chico muted">Cada cuota incluye el IVA sobre sus intereses: como el interés baja mes a mes, la cuota total también baja un poco.
+      <p class="chico muted"><?php if (!empty($res['cuota_grilla'])): ?>Cuota de la grilla de valores del tipo de asociado (<?= money($res['cuota_grilla']) ?>, IVA incluido):
+        todas las cuotas son iguales y la TNA sale de esa cuota.<?php else: ?>Cada cuota incluye el IVA sobre sus intereses: como el interés baja mes a mes, la cuota total también baja un poco.<?php endif; ?>
         Los gastos descontados se restan de lo que se recibe; los financiados se suman al capital de las cuotas (y pagan interés).
         El CFT es aproximado (períodos mensuales iguales). Simulación sin valor contractual.</p>
     </div>

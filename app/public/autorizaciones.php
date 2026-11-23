@@ -56,7 +56,7 @@ mensajes($errores);
 
 <div class="card">
   <?= card_head('Pendientes de autorización', count($pend) ? 'la más vieja primero' : '') ?>
-  <?= barra_local('autorizaciones.php', 'Número, cliente, CUIT, vendedor o tipo…') ?>
+  <?= barra_local('autorizaciones.php', 'Número, cliente, CUIT, comercializador o tipo…') ?>
   <div class="data-table-wrap">
     <table class="data-table" data-local data-paginada data-unidad="solicitud|solicitudes">
       <thead>

@@ -187,7 +187,7 @@
    input[data-tel]: al salir del campo el número queda como se guarda,
    +54 9 11 2345-6789 (celular) o +54 11 4321-0000 (fijo). Es la misma regla
    que tel_normalizar() / tel_fmt() de inc/ui.php, que es la que manda.
-     data-tel="movil"  siempre celular (WhatsApp, vendedores)
+     data-tel="movil"  siempre celular (WhatsApp, comercializadores)
      data-tel="fijo"   siempre fijo
      data-tel="tipo"   lo dice el <select> del mismo renglón (Celular / Fijo)
      data-tel=""       lo decide el 15 o el 9 con que se escribió */
@@ -499,4 +499,137 @@
     var sec = document.getElementById(decodeURIComponent(location.hash.slice(1)));
     if (sec) sec.classList.add('destacada');
   }
+})();
+
+/* ── Volver a la pantalla anterior ───────────────────────────────────────
+   El botón «Volver» de la barra de arriba y la tecla Esc llevan a la
+   pantalla desde la que se llegó a esta (como en gestion_sindicato).
+
+   No alcanza con history.back(): después de guardar, el historial tiene dos
+   veces la misma pantalla (el formulario y la que devuelve el redirect) y
+   «atrás» parece no hacer nada; y volver con un enlace común suma una
+   entrada más, así que dos «Volver» seguidos irían y vendrían entre las
+   mismas dos pantallas. Por eso cada pestaña lleva su pila de pantallas en
+   sessionStorage:
+     - una pantalla nueva se apila;
+     - la misma dirección otra vez (recargar, guardar) no suma;
+     - llegar con atrás o adelante del navegador recorta la pila hasta ahí;
+     - «Volver» la recorta antes de irse. Si la anterior es justo la entrada
+       previa del historial usa history.back(), que la devuelve como estaba
+       (con los filtros puestos).
+   La pila se vacía en el login: no se vuelve a pantallas de otra sesión.
+
+   Esc no actúa si se está escribiendo, si hay un diálogo abierto, con el
+   menú abierto en el celular ni en Mensajes (ahí Esc es del chat). Con
+   cambios sin guardar en un formulario, el botón y Esc preguntan antes. */
+(function () {
+  'use strict';
+  var CLAVE = 'fin_pantallas', MAX = 30;
+  var boton = document.getElementById('btn-volver');
+  if (!boton) return;           // sin sesión no hay barra ni a dónde volver
+
+  function leer() {
+    try { return JSON.parse(sessionStorage.getItem(CLAVE)) || []; } catch (e) { return []; }
+  }
+  function guardar(pila) {
+    try { sessionStorage.setItem(CLAVE, JSON.stringify(pila.slice(-MAX))); } catch (e) {}
+  }
+  function aqui() { return location.pathname + location.search; }
+  function titulo() {
+    var h1 = document.querySelector('.page-header h1');
+    var t = h1 ? h1.textContent : document.title.split(' · ')[0];
+    return t.replace(/\s+/g, ' ').trim();
+  }
+  function posicion(pila, url) {
+    for (var i = pila.length - 1; i >= 0; i--) if (pila[i].url === url) return i;
+    return -1;
+  }
+  function anterior(pila) { return pila.length >= 2 ? pila[pila.length - 2] : null; }
+
+  function llegada(restaurada) {
+    if (restaurada) return 'back_forward';
+    try {
+      var n = performance.getEntriesByType('navigation')[0];
+      if (n) return n.type;
+    } catch (e) {}
+    return 'navigate';
+  }
+
+  function registrar(restaurada) {
+    var pila = leer(), url = aqui(), tope = pila[pila.length - 1];
+    if (tope && tope.url === url) {
+      tope.titulo = titulo();
+    } else if (llegada(restaurada) === 'back_forward' && posicion(pila, url) >= 0) {
+      pila = pila.slice(0, posicion(pila, url) + 1);
+    } else {
+      pila.push({ url: url, titulo: titulo() });
+    }
+    guardar(pila);
+    var a = anterior(pila);
+    boton.classList.toggle('oculto', !a);
+    if (a) {
+      boton.href = a.url;
+      boton.title = 'Volver a «' + a.titulo + '» (Esc)';
+    }
+  }
+
+  function esEditable(el) {
+    if (!el) return false;
+    var tag = (el.tagName || '').toUpperCase();
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+  }
+  function hayDialogoAbierto() {
+    return !!document.querySelector('.modal.abierto, dialog[open]') || document.body.classList.contains('menu-abierto');
+  }
+  // Solo los formularios que guardan (POST): un filtro tocado no se pierde.
+  function hayCambiosSinGuardar() {
+    var sucio = false;
+    document.querySelectorAll('form').forEach(function (f) {
+      if ((f.getAttribute('method') || 'get').toLowerCase() !== 'post') return;
+      f.querySelectorAll('input, textarea, select').forEach(function (c) {
+        if (sucio || c.type === 'hidden' || c.type === 'file' || c.matches(':disabled')) return;
+        if (c.type === 'checkbox' || c.type === 'radio') {
+          if (c.checked !== c.defaultChecked) sucio = true;
+        } else if (c.tagName === 'SELECT') {
+          for (var i = 0; i < c.options.length; i++) {
+            if (c.options[i].selected !== c.options[i].defaultSelected) { sucio = true; break; }
+          }
+        } else if (c.value !== c.defaultValue) {
+          sucio = true;
+        }
+      });
+    });
+    return sucio;
+  }
+
+  function volver() {
+    var pila = leer(), a = anterior(pila);
+    if (!a) return;
+    if (hayCambiosSinGuardar() && !confirm('Hay cambios sin guardar. ¿Salir de la pantalla igual?')) return;
+    pila.pop();
+    guardar(pila);
+    var previa = '';
+    try {
+      var r = new URL(document.referrer);
+      if (r.origin === location.origin) previa = r.pathname + r.search;
+    } catch (e) {}
+    if (previa === a.url && history.length > 1) history.back();
+    else location.href = a.url;
+  }
+
+  boton.addEventListener('click', function (e) {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;   // en otra pestaña, como un enlace
+    e.preventDefault();
+    volver();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' || e.ctrlKey || e.altKey || e.metaKey || e.defaultPrevented) return;
+    if (esEditable(document.activeElement) || hayDialogoAbierto()) return;
+    if (document.querySelector('[data-chat-app]')) return;
+    volver();
+  }, true);   // antes que los demás: un Esc que cierra un diálogo no tiene que navegar
+
+  registrar(false);
+  // Vuelta con atrás desde la caché del navegador: la página no se recarga.
+  window.addEventListener('pageshow', function (e) { if (e.persisted) registrar(true); });
 })();

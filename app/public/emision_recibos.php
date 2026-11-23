@@ -212,7 +212,7 @@ mensajes($errores);
             <td class="mono"><?= h(fecha($f['fecha'])) ?> · <?= money($f['credito']) ?>
               <span class="segunda-linea"><?= $f['referencia'] ? 'ref. ' . h($f['referencia']) : 'sin referencia' ?><?= $f['disponible'] + 0.004 < $f['credito'] ? ' · quedan ' . money($f['disponible']) : '' ?></span></td>
             <td class="td-wrap"><?= $verCli ? '<a href="cliente.php?id=' . (int) $f['cliente']['id_cliente'] . '">' . h($f['cliente']['denominacion']) . '</a>' : h($f['cliente']['denominacion']) ?>
-              <span class="segunda-linea"><?= h(cuit_fmt($f['cliente']['cuit'])) ?> · <?= num($d['prestamos']) ?> <?= $d['prestamos'] === 1 ? 'préstamo' : 'préstamos' ?><?php
+              <span class="segunda-linea"><?= h(cuit_fmt($f['cliente']['cuit'])) ?> · <?= $d['prestamos'] ? num($d['prestamos']) . ($d['prestamos'] === 1 ? ' préstamo' : ' préstamos') : 'sin préstamos' ?><?= $d['cs'] > 0 ? ' · cuota social ' . money($d['cs']) : '' ?><?php
                 if ($f['leido'] && $f['leido'] !== $f['cliente']['cuit']): ?> · pagó <?= h(cuit_fmt($f['leido'])) ?><?php endif;
                 if ($f['como'] === 'regla'): ?> <span class="chip" title="Por la regla de ese CUIL">regla</span><?php elseif ($f['como'] === 'manual'): ?> <span class="chip" title="Asignado a mano">a mano</span><?php endif; ?></span></td>
             <td class="td-right"><?= $d['vencido'] > 0 ? money($d['vencido']) : '<span class="td-muted">—</span>' ?></td>
@@ -236,7 +236,7 @@ mensajes($errores);
                       $resto['hasta'] = $c['vencimiento'];
                       continue;
                   } ?>
-                <tr class="<?= $c['aplica'] <= 0 ? 'td-muted' : '' ?>"><td><?= $verPre ? '<a href="prestamo.php?id=' . (int) $c['id_prestamo'] . '">' . h($c['nro_prestamo']) . '</a>' : h($c['nro_prestamo']) ?></td><td class="td-right"><?= (int) $c['nro_cuota'] ?></td>
+                <tr class="<?= $c['aplica'] <= 0 ? 'td-muted' : '' ?>"><?php if (isset($c['id_cuota_social'])): ?><td>Cuota social</td><td class="td-right"><?= h(CS_CONCEPTOS[$c['concepto']] ?? $c['concepto']) ?></td><?php else: ?><td><?= $verPre ? '<a href="prestamo.php?id=' . (int) $c['id_prestamo'] . '">' . h($c['nro_prestamo']) . '</a>' : h($c['nro_prestamo']) ?></td><td class="td-right"><?= (int) $c['nro_cuota'] ?></td><?php endif; ?>
                   <td><?= h(fecha($c['vencimiento'])) ?> <span class="td-muted"><?= ['vencido' => '· vencida', 'periodo' => '· del período', 'despues' => ''][$c['tramo']] ?></span></td>
                   <td class="td-right"><?= $c['dias_atraso'] ?: '—' ?></td><td class="td-right"><?= $c['punitorio'] > 0 ? money($c['punitorio']) : '—' ?></td>
                   <td class="td-right"><?= money($c['total']) ?></td><td class="td-right td-fuerte"><?= $c['aplica'] > 0 ? money($c['aplica']) : '—' ?></td></tr>

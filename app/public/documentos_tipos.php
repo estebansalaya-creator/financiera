@@ -154,7 +154,7 @@ $hayFiltros = $fDest !== '' || $fAprob !== '' || $fEstado !== '1';
 layout_inicio('Documentación requerida', 'clientes');
 titulo('Documentación requerida', 'Qué se le pide a cada cliente, si es obligatoria u opcional para aprobar y cuánto dura',
        ($reg ? '' : boton('Nuevo documento', 'primary', 'documentos_tipos.php?nuevo=1', 'agregar'))
-       . (puede('solicitudes.php') ? ' ' . boton('Instructivo para vendedores', 'pdf', 'solicitudes.php?instructivo=pdf', 'pdf', false, false, ['target' => '_blank', 'rel' => 'noopener']) : ''),
+       . (puede('solicitudes.php') ? ' ' . boton('Instructivo para comercializadores', 'pdf', 'solicitudes.php?instructivo=pdf', 'pdf', false, false, ['target' => '_blank', 'rel' => 'noopener']) : ''),
        '<a href="clientes.php">Clientes</a> / Documentación requerida');
 mensajes($errores);
 

@@ -81,7 +81,10 @@ $desde = "FROM clientes c
          WHERE $where";
 $columnas = "c.id_cliente, c.tipo, c.cuit, c.denominacion, c.email, c.condicion_iva, c.estado, c.creado_el,
              v.nombre AS vendedor, cp.dni, ce.nombre_fantasia, ta.nombre AS tipo_asociado, rp.nombre AS reparticion,
-             (SELECT t.numero FROM telefonos t WHERE t.id_cliente = c.id_cliente ORDER BY t.principal DESC, t.id_telefono LIMIT 1) AS telefono,
+             (SELECT COALESCE(t.celular, t.telefono) FROM contactos t
+                WHERE t.entidad_tipo = 'cliente' AND t.entidad_id = c.id_cliente AND t.activo = 1
+                  AND (t.celular IS NOT NULL OR t.telefono IS NOT NULL)
+                ORDER BY t.principal DESC, t.id_contacto LIMIT 1) AS telefono,
              (SELECT CONCAT(d.localidad, ', ', d.provincia) FROM domicilios d WHERE d.id_cliente = c.id_cliente
                ORDER BY d.principal DESC, d.id_domicilio LIMIT 1) AS localidad,
              (SELECT COUNT(*) FROM prestamos p WHERE p.id_cliente = c.id_cliente AND p.estado = 'VIGENTE') AS vigentes,
@@ -129,7 +132,7 @@ try {
                 [['CUIT/CUIL', 'texto', 15], ['Cliente', 'texto', 34], ['Tipo', 'texto', 15], ['DNI', 'texto', 11],
                  ['Tipo de asociado', 'texto', 24], ['Repartición', 'texto', 24],
                  ['Condición IVA', 'texto', 13], ['Email', 'texto', 28], ['Teléfono', 'texto', 20], ['Localidad', 'texto', 28],
-                 ['Vendedor', 'texto', 22], ['Préstamos vigentes', 'entero', 12], ['Documentación', 'texto', 18], ['Estado', 'texto', 11], ['Alta', 'fecha', 12]],
+                 ['Comercializador', 'texto', 22], ['Préstamos vigentes', 'entero', 12], ['Documentación', 'texto', 18], ['Estado', 'texto', 11], ['Alta', 'fecha', 12]],
                 array_map(function ($c) {
                     return [cuit_fmt($c['cuit']), $c['denominacion'], TIPOS_CLIENTE[$c['tipo']] ?? $c['tipo'], $c['dni'],
                             $c['tipo_asociado'], $c['reparticion'],
@@ -167,7 +170,7 @@ mensajes($errores);
       <select name="tipo" class="filtro <?= $fTipo !== '' ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(TIPOS_CLIENTE, $fTipo, 'Todos') ?></select></label>
     <label class="filtro-campo"><span class="filtro-lbl">Estado</span>
       <select name="estado" class="filtro <?= $fEstado !== '' ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(ESTADOS_CLIENTE, $fEstado, 'Todos') ?></select></label>
-    <label class="filtro-campo"><span class="filtro-lbl">Vendedor</span>
+    <label class="filtro-campo"><span class="filtro-lbl">Comercializador</span>
       <select name="vendedor" class="filtro <?= $fVend ? 'activo' : '' ?>" onchange="this.form.submit()">
         <?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $fVend ?: '', 'Todos') ?></select></label>
     <label class="filtro-campo"><span class="filtro-lbl">Tipo de asociado</span>
@@ -190,7 +193,7 @@ mensajes($errores);
           <?= th_orden('Tipo de asociado', 'asociado', $orden) ?>
           <?= th_orden('Teléfono', 'telefono', $orden) ?>
           <?= th_orden('Localidad', 'localidad', $orden) ?>
-          <?= th_orden('Vendedor', 'vendedor', $orden) ?>
+          <?= th_orden('Comercializador', 'vendedor', $orden) ?>
           <?= th_orden('Préstamos vigentes', 'vigentes', $orden, 'th-right') ?>
           <th data-no-sort>Documentación</th>
           <?= th_orden('Estado', 'estado', $orden) ?>

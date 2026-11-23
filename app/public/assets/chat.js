@@ -212,7 +212,7 @@
     this.mas.type = 'button';
     this.mas.hidden = true;
     this.mas.addEventListener('click', function () { self.anteriores(); });
-    this.vacio = el('div', 'chat-vacio', this.solicitud ? 'Todavía no hay mensajes sobre esta solicitud. Lo que escribas acá lo ven quien la cargó, el vendedor y quien la autoriza.' : 'Todavía no hay mensajes.');
+    this.vacio = el('div', 'chat-vacio', this.solicitud ? 'Todavía no hay mensajes sobre esta solicitud. Lo que escribas acá lo ven quien la cargó, el comercializador y quien la autoriza.' : 'Todavía no hay mensajes.');
     this.vacio.hidden = true;
     this.lista.appendChild(this.mas);
     this.lista.appendChild(this.vacio);
@@ -1103,7 +1103,7 @@
       var nom = el('input');
       nom.maxLength = 80;
       nom.required = true;
-      nom.placeholder = 'Por ejemplo: Vendedores zona norte';
+      nom.placeholder = 'Por ejemplo: Comercializadores zona norte';
       var campo = el('div', 'campo');
       campo.appendChild(lab);
       campo.appendChild(nom);

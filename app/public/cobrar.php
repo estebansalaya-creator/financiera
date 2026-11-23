@@ -199,7 +199,7 @@ if (!$p) {
             $libro = new XlsxLibro();
             $libro->hoja('Préstamos con saldo')->titulo('Préstamos con saldo a pagar al ' . date('d/m/Y'),
                     ($hayFiltros ? 'Filtrado · ' : '') . num($total) . ' préstamos · lo vencido sin los punitorios del día · generado el ' . date('d/m/Y H:i'))
-                ->tabla([['Préstamo', 'texto', 12], ['Tipo de asociado', 'texto', 20], ['Cliente', 'texto', 32], ['CUIT/CUIL', 'texto', 15], ['Vendedor', 'texto', 20],
+                ->tabla([['Préstamo', 'texto', 12], ['Tipo de asociado', 'texto', 20], ['Cliente', 'texto', 32], ['CUIT/CUIL', 'texto', 15], ['Comercializador', 'texto', 20],
                          ['Cuotas', 'entero', 8], ['Pagadas', 'entero', 9], ['Impagas', 'entero', 9], ['Vencidas', 'entero', 9],
                          ['Próximo vencimiento', 'fecha', 13], ['Deuda vencida', 'moneda', 15], ['A vencer', 'moneda', 15], ['Total', 'moneda', 15]],
                         array_map(function ($r) {
@@ -262,7 +262,7 @@ mensajes($errores);
       <input type="search" name="q" value="<?= h($q) ?>" class="filter-input <?= $q !== '' ? 'activo' : '' ?>" placeholder="Buscar…" autofocus></label>
     <label class="filtro-campo"><span class="filtro-lbl">Deuda</span>
       <select name="deuda" class="filtro <?= $fDeuda !== '' ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(['vencida' => 'Con cuotas vencidas', 'al_dia' => 'Al día'], $fDeuda, 'Toda') ?></select></label>
-    <label class="filtro-campo"><span class="filtro-lbl">Vendedor</span>
+    <label class="filtro-campo"><span class="filtro-lbl">Comercializador</span>
       <select name="vendedor" class="filtro <?= $fVend ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $fVend ?: '', 'Todos') ?></select></label>
     <?= filtro_botones('cobrar.php', $hayFiltros) ?>
     <?= filtro_fin(['total' => $total, 'pagina' => $pagina, 'por_pagina' => $porPag, 'unidad' => 'préstamos',

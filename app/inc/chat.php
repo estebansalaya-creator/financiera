@@ -9,7 +9,7 @@ declare(strict_types=1);
 //     - Directas y grupos: quien tiene la opción «Mensajes» (chat.php).
 //       Todos le pueden escribir a todos los usuarios activos.
 //     - Hilo de una solicitud: quien puede ver la solicitud (sol_cargar:
-//       los vendedores, solo las suyas). No hace falta «Mensajes».
+//       los comercializadores, solo las suyas). No hace falta «Mensajes».
 //
 //   No leídos: participante.ultimo_leido contra
 //   conversación.ultimo_mensaje_id (ver el .sql).
@@ -305,7 +305,7 @@ function chat_hilo_solicitud(int $idSolicitud, bool $crear = false): ?int
 
 /**
  * Los que reciben aviso de un hilo de solicitud: quien la cargó, el usuario
- * del vendedor, quien escribe ahora y, si ya se resolvió, quien la
+ * del comercializador, quien escribe ahora y, si ya se resolvió, quien la
  * resolvió; si todavía no, todos los que pueden autorizar (opción
  * «Autorizaciones», por rol o suelta). Los que ya escribieron siguen
  * siendo participantes. Se vuelve a correr en cada mensaje.
@@ -591,7 +591,7 @@ function chat_lista(): array
                  WHERE p.id_usuario = ? AND c.tipo IN $tipos AND (c.tipo <> 'DIRECTA' OR c.ultimo_mensaje_id > 0)
                  ORDER BY COALESCE(c.ultimo_mensaje_el, c.creado_el) DESC
                  LIMIT " . CHAT_LISTA_MAX, [$yo]);
-    // ¿Las solicitudes de los hilos todavía las ve? (a un vendedor le puede cambiar el vínculo)
+    // ¿Las solicitudes de los hilos todavía las ve? (a un comercializador le puede cambiar el vínculo)
     $ver = [];
     $ok = [];
     foreach ($filas as $f) {
@@ -721,7 +721,7 @@ function chat_integrantes(int $idConv): array
 
 /**
  * Teléfono de cada usuario: el celular de su ficha (usuarios.celular) o, si
- * no tiene, el de su vendedor. id => [tel (para mostrar), tel_url, wa_url].
+ * no tiene, el de su comercializador. id => [tel (para mostrar), tel_url, wa_url].
  * Los que no tienen no figuran.
  */
 function chat_telefonos(array $ids): array

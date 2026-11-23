@@ -129,7 +129,7 @@ function tipo_mov_cuentas(string $tipoOrigen, string $tipoDestino): string
     return 'ENTRE_CUENTAS';
 }
 
-// cbu_valido(), cbu_fmt() y cbu_banco() están en inc/ui.php (también los usan clientes, vendedores e inversores).
+// cbu_valido(), cbu_fmt() y cbu_banco() están en inc/ui.php (también los usan clientes, comercializadores e inversores).
 
 /** ¿Puede abrir esa pantalla? (opción de menú o pantalla que cuelga de una). */
 function puede_abrir(string $pagina): bool

@@ -399,9 +399,13 @@ BEGIN
         ELSE
             SET v_id_regla = fn_comision_regla(p_id_vendedor, p_id_tipo_asociado, p_plazo, p_capital, p_fecha, p_telemarketing);
             IF v_id_regla IS NOT NULL THEN
-                SELECT IF(p_telemarketing = 1, COALESCE(porcentaje_tm, porcentaje), porcentaje), base_calculo
+                SELECT IF(p_telemarketing = 1,
+                          COALESCE(r.porcentaje_tm, ROUND(r.porcentaje * COALESCE(t.pct_telemarketing, 1), 6)),
+                          r.porcentaje), r.base_calculo
                   INTO v_com_pct, v_base_tipo
-                  FROM comision_reglas WHERE id_regla = v_id_regla;
+                  FROM comision_reglas r
+                  LEFT JOIN tipos_asociado t ON t.id_tipo_asociado = r.id_tipo_asociado
+                 WHERE r.id_regla = v_id_regla;
             END IF;
         END IF;
 

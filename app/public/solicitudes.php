@@ -7,10 +7,10 @@ require __DIR__ . '/../inc/solicitudes.php';
 
 // ---------------------------------------------------------------------
 // Solicitudes de préstamo: listado
-//   Un vendedor ve las que cargó y las de su vendedor; el que tiene
+//   Un comercializador ve las que cargó y las de su comercializador; el que tiene
 //   «Autorizaciones» o «Préstamos» en el menú las ve todas.
 //   Paginado en el servidor; el Excel trae todo el filtro.
-//   ?instructivo=pdf  el instructivo para vendedores, con la documentación
+//   ?instructivo=pdf  el instructivo para comercializadores, con la documentación
 //                     requerida como esté configurada en ese momento
 //   ?estado=ABIERTAS  pendientes + observadas + aprobadas (las que
 //                     todavía tienen algo por hacer)
@@ -102,7 +102,7 @@ try {
         $libro->hoja('Solicitudes')->titulo('Solicitudes de préstamo', num($tot['n']) . ' solicitudes · generado el ' . date('d/m/Y H:i'))
             ->tabla(
                 [['N°', 'texto', 11], ['Cargada', 'fecha', 12], ['Cliente', 'texto', 32], ['CUIT/CUIL', 'texto', 15],
-                 ['Tipo de asociado', 'texto', 20], ['Vendedor', 'texto', 20], ['Monto', 'moneda', 15], ['Cuotas', 'entero', 8],
+                 ['Tipo de asociado', 'texto', 20], ['Comercializador', 'texto', 20], ['Monto', 'moneda', 15], ['Cuotas', 'entero', 8],
                  ['Cuota', 'moneda', 14], ['Estado', 'texto', 12], ['Cargó', 'texto', 20], ['Resolvió', 'texto', 20],
                  ['Resuelta', 'fecha', 12], ['Comentario', 'texto', 40], ['Préstamo', 'texto', 11]],
                 array_map(function ($s) {
@@ -153,7 +153,7 @@ mensajes($errores);
     <label class="filtro-campo"><span class="filtro-lbl">Estado</span>
       <select name="estado" class="filtro <?= $fEstado !== '' ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(FILTRO_ESTADO, $fEstado, 'Todos') ?></select></label>
     <?php if ($todas): ?>
-    <label class="filtro-campo"><span class="filtro-lbl">Vendedor</span>
+    <label class="filtro-campo"><span class="filtro-lbl">Comercializador</span>
       <select name="vendedor" class="filtro <?= $fVend ? 'activo' : '' ?>" onchange="this.form.submit()"><?= opciones(array_column($vendedores, 'nombre', 'id_vendedor'), $fVend ?: '', 'Todos') ?></select></label>
     <?php endif; ?>
     <label class="filtro-campo"><span class="filtro-lbl">Desde</span>

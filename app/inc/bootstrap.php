@@ -30,6 +30,18 @@ if (is_file($cfgFile)) {
         'debug' => $env('FIN_DEBUG', '0') === '1',
         'whatsapp_token' => $env('FIN_WA_TOKEN', ''),
         'video_url' => $env('FIN_VIDEO_URL', 'https://meet.jit.si/'),
+        'arca_cert' => $env('FIN_ARCA_CERT', ''),
+        'arca_key' => $env('FIN_ARCA_KEY', ''),
+        'arca_cert_b64' => $env('FIN_ARCA_CERT_B64', ''),
+        'arca_key_b64' => $env('FIN_ARCA_KEY_B64', ''),
+        'arca_cuit' => $env('FIN_ARCA_CUIT', ''),
+        'arca_cainfo' => $env('FIN_ARCA_CAINFO', ''),
+        'arca_cert_homo' => $env('FIN_ARCA_CERT_HOMO', ''),
+        'arca_key_homo' => $env('FIN_ARCA_KEY_HOMO', ''),
+        'arca_cert_homo_b64' => $env('FIN_ARCA_CERT_HOMO_B64', ''),
+        'arca_key_homo_b64' => $env('FIN_ARCA_KEY_HOMO_B64', ''),
+        'arca_cuit_homo' => $env('FIN_ARCA_CUIT_HOMO', ''),
+        'arca_wsfe_produccion' => in_array(strtolower((string) $env('FIN_ARCA_WSFE_PRODUCCION', '')), ['1', 'true', 'si', 'sí'], true),
     ];
     unset($env);
 } else {
@@ -249,7 +261,7 @@ function mensaje_bd(Throwable $e, array $duplicados = []): string
             return 'Otra persona estaba grabando lo mismo en ese momento y no se guardó nada. Probá de nuevo.';
         }
         if ($cod === 1452) {
-            return 'Falta un dato relacionado (por ejemplo, el vendedor o el tipo de asociado elegido ya no existe).';
+            return 'Falta un dato relacionado (por ejemplo, el comercializador o el tipo de asociado elegido ya no existe).';
         }
     }
     return error_amigable($e);

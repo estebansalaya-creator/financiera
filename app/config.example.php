@@ -41,4 +41,21 @@ return [
 
     // true solo en desarrollo: muestra el detalle de los errores de base en pantalla
     'debug'   => false,
+
+    // ARCA («Consultar ARCA» en la ficha del cliente: constancia de inscripción,
+    // ws_sr_constancia_inscripcion). El certificado tiene que estar habilitado
+    // para ese servicio en el Administrador de Relaciones de ARCA. En Railway:
+    // FIN_ARCA_CERT_B64 / FIN_ARCA_KEY_B64 (el .crt y el .key en base64) y FIN_ARCA_CUIT.
+    'arca_cert'   => 'C:\\web\\certs\\certificado.crt',
+    'arca_key'    => 'C:\\web\\certs\\clave_privada.key',
+    'arca_cuit'   => '20211076004',     // CUIT dueño del certificado
+    'arca_cainfo' => '',                // cacert.pem si PHP no valida HTTPS (vacío: usa bcra_cainfo)
+    // Factura electrónica (inc\facturacion.php). Homologación: el certificado
+    // del autoservicio de homologación de ARCA (sin esto usa el de arriba).
+    'arca_cert_homo' => '',
+    'arca_key_homo'  => '',
+    'arca_cuit_homo' => '',
+    // Producción: sin esto en true, los talonarios de producción no se autorizan
+    // (un IIS de prueba no puede emitir una factura real por olvido).
+    'arca_wsfe_produccion' => false,
 ];
