@@ -5,6 +5,7 @@ require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/cobranzas.php';
 require __DIR__ . '/../inc/fondos.php';
+require __DIR__ . '/../inc/contable.php';
 
 // ---------------------------------------------------------------------
 // Cuentas de fondos (Tesorería), como el ABM de gestion_adm:
@@ -56,7 +57,7 @@ if (es_post()) {
                 'id_banco' => post_str('id_banco'), 'numero_cuenta' => post_str('numero_cuenta'),
                 'cbu' => preg_replace('/\D/', '', post_str('cbu')), 'alias' => post_str('alias'),
                 'predeterminada' => post_str('predeterminada') === '1' ? 1 : 0, 'habilitada' => post_str('habilitada') === '1' ? 1 : 0,
-                'comentario' => post_str('comentario')];
+                'comentario' => post_str('comentario'), 'id_cuenta_contable' => post_str('id_cuenta_contable')];
         $ant = $id ? q1('SELECT * FROM cuentas_fondos WHERE id_cuenta_fondos = ?', [$id]) : null;
         if ($id && !$ant) {
             flash('warning', 'Esa cuenta ya no existe.');
@@ -113,6 +114,10 @@ if (es_post()) {
         if (!$reg['habilitada']) {
             $reg['predeterminada'] = 0;
         }
+        $conCtb = ctb_imputaciones_instaladas();
+        if ($conCtb && ($e = ctb_error_cuenta_imputable($reg['id_cuenta_contable'])) !== null) {
+            $errores[] = $e;
+        }
 
         if (!$errores) {
             $pdo = db();
@@ -136,6 +141,10 @@ if (es_post()) {
                     q('INSERT INTO cuentas_fondos (tipo, nombre, moneda, id_banco, numero_cuenta, cbu, alias, predeterminada, habilitada, comentario, creado_por)
                        VALUES (?,?,?,?,?,?,?,?,?,?,?)', array_merge($vals, [usuario_id()]));
                     $id = (int) $pdo->lastInsertId();
+                }
+                if ($conCtb) {
+                    q('UPDATE cuentas_fondos SET id_cuenta_contable = ? WHERE id_cuenta_fondos = ?',
+                      [$reg['id_cuenta_contable'] !== '' ? (int) $reg['id_cuenta_contable'] : null, $id]);
                 }
                 $pdo->commit();
                 if (!$ant && $t === 'B') {
@@ -389,7 +398,7 @@ try {
             redirigir('cuentas_fondos.php');
         }
         $reg = $reg ?: ['id_cuenta_fondos' => 0, 'tipo' => 'B', 'nombre' => '', 'moneda' => 'ARS', 'id_banco' => '', 'numero_cuenta' => '',
-                        'cbu' => '', 'alias' => '', 'predeterminada' => 0, 'habilitada' => 1, 'comentario' => ''];
+                        'cbu' => '', 'alias' => '', 'predeterminada' => 0, 'habilitada' => 1, 'comentario' => '', 'id_cuenta_contable' => ''];
     }
     if ($reg && $reg['id_cuenta_fondos']) {
         $usos = usos_cuenta((int) $reg['id_cuenta_fondos']);
@@ -472,6 +481,11 @@ mensajes($errores);
           <input id="alias" name="alias" value="<?= h((string) $r['alias']) ?>" maxlength="50" class="mono"></div>
         <div class="campo" style="--span:8"><label for="comentario">Comentario</label>
           <input id="comentario" name="comentario" value="<?= h((string) $r['comentario']) ?>" maxlength="250"></div>
+        <?php if (ctb_imputaciones_instaladas()): ?>
+        <div class="campo" style="--span:4"><label for="id_cuenta_contable">Cuenta contable</label>
+          <?= ctb_select_cuenta('id_cuenta_contable', ctb_cuentas_imputables(), $r['id_cuenta_contable'] ?? '', 'Sin asignar') ?>
+          <span class="campo-ayuda">donde se registran los movimientos de esta cuenta en los asientos</span></div>
+        <?php endif; ?>
         <div class="campo campo-boton" style="--span:6">
           <label class="campo-check"><input type="checkbox" name="predeterminada" value="1" <?= (int) $r['predeterminada'] ? 'checked' : '' ?>> Predeterminada</label>
           <span class="campo-ayuda">la que viene elegida al desembolsar un préstamo y al pagar a un inversor (una por moneda)</span></div>
@@ -626,7 +640,9 @@ mensajes($errores);
           <td class="td-wrap" data-orden="<?= h($c['nombre']) ?>"><a href="cuentas_fondos.php?edit=<?= $cid ?>"><strong><?= h($c['nombre']) ?></strong></a>
             <?php $det = array_filter([$c['banco'] ? $c['banco_codigo'] . ' · ' . $c['banco'] : '', $c['numero_cuenta'] ? 'N° ' . $c['numero_cuenta'] : '',
                                        $c['cbu'] ? ($c['tipo'] === 'V' ? 'CVU ' : 'CBU ') . $c['cbu'] : '', $c['alias'] ? 'alias ' . $c['alias'] : '']); ?>
-            <?= $det ? '<span class="segunda-linea mono">' . h(implode(' · ', $det)) . '</span>' : '' ?></td>
+            <?= $det ? '<span class="segunda-linea mono">' . h(implode(' · ', $det)) . '</span>' : '' ?>
+            <?php if (ctb_imputaciones_instaladas()): ?><span class="segunda-linea"><?= !empty($c['id_cuenta_contable'])
+                  ? 'contable ' . h(ctb_cuenta_txt($c['id_cuenta_contable'])) : '<span class="texto-error">sin cuenta contable</span>' ?></span><?php endif; ?></td>
           <td><?= tipo_cuenta_badge($c['tipo']) ?><?= (int) $c['chequeras'] ? '<span class="segunda-linea">' . num($c['chequeras']) . ' chequera' . ((int) $c['chequeras'] > 1 ? 's' : '') . '</span>' : '' ?></td>
           <td><?= h(MONEDAS[$c['moneda']] ?? $c['moneda']) ?></td>
           <td class="td-right td-fuerte" data-orden="<?= (float) $c['saldo'] ?>"><?= importe_saldo($c['saldo'], $c['moneda']) ?></td>

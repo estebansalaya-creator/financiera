@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/../inc/bootstrap.php';
 require __DIR__ . '/../inc/layout.php';
 require __DIR__ . '/../inc/gastos.php';
+require __DIR__ . '/../inc/contable.php';
 
 // ---------------------------------------------------------------------
 // Catálogo de conceptos de gasto (sql/financiera_gastos.sql)
@@ -54,7 +55,8 @@ if (es_post()) {
         $reg = $txt + ['id_concepto_gasto' => $id ?: null, 'codigo' => $actual['codigo'] ?? '',
                        'nombre' => trim(preg_replace('/\s+/u', ' ', post_str('nombre'))),
                        'lleva_iva' => post_str('lleva_iva') === '1' ? 1 : 0, 'iva_txt' => post_str('alicuota_iva'),
-                       'orden' => post_str('orden') ?: '500', 'activo' => post_str('activo') === '1' ? 1 : 0];
+                       'orden' => post_str('orden') ?: '500', 'activo' => post_str('activo') === '1' ? 1 : 0,
+                       'id_cuenta_contable' => post_str('id_cuenta_contable')];
         $iva = leer_num($reg['iva_txt']);
         if ($reg['nombre'] === '') {
             $errores[] = 'Falta el nombre.';
@@ -66,6 +68,10 @@ if (es_post()) {
         }
         if (!preg_match('/^-?\d{1,4}$/', $reg['orden'])) {
             $errores[] = 'El orden es un número.';
+        }
+        $conCtb = ctb_imputaciones_instaladas();
+        if ($conCtb && ($e = ctb_error_cuenta_imputable($reg['id_cuenta_contable'])) !== null) {
+            $errores[] = $e;
         }
         if (!$errores) {
             $ali = $reg['lleva_iva'] ? round($iva / 100, 4) : 0.21;
@@ -86,6 +92,10 @@ if (es_post()) {
                                                     lleva_iva, alicuota_iva, orden, activo, codigo, creado_por)
                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', array_merge($datos, [$cod, usuario_id()]));
                     flash('ok', '«' . $reg['nombre'] . '» agregado al catálogo. Para cobrarlo, agregalo en la solapa Gastos de cada tipo de asociado.');
+                }
+                if ($conCtb) {
+                    q('UPDATE gastos_conceptos SET id_cuenta_contable = ? WHERE ' . ($id ? 'id_concepto_gasto = ?' : 'codigo = ?'),
+                      [$reg['id_cuenta_contable'] !== '' ? (int) $reg['id_cuenta_contable'] : null, $id ?: $cod]);
                 }
                 redirigir($lista);
             } catch (Throwable $e) {
@@ -111,7 +121,7 @@ try {
     } elseif ($reg === null && get_str('nuevo') !== '') {
         $reg = ['id_concepto_gasto' => null, 'codigo' => '', 'nombre' => '', 'tipo_calculo' => 'PORCENTAJE', 'valor_txt' => '',
                 'minimo_txt' => '', 'maximo_txt' => '', 'forma_cobro' => 'DESCUENTO', 'lleva_iva' => 0, 'iva_txt' => '21',
-                'orden' => '500', 'activo' => 1];
+                'orden' => '500', 'activo' => 1, 'id_cuenta_contable' => ''];
     }
     $conceptos = q('SELECT g.*, (SELECT COUNT(*) FROM prestamos_gastos pg WHERE pg.id_concepto_gasto = g.id_concepto_gasto) AS usos
                       FROM gastos_conceptos g' . ($fEstado !== 'todos' ? ' WHERE g.activo = ' . (int) $fEstado : '') . '
@@ -156,6 +166,13 @@ if ($reg):
         <div class="campo campo-boton" style="--span:2">
           <label class="campo-check"><input type="checkbox" name="activo" value="1" <?= (int) $reg['activo'] ? 'checked' : '' ?>> Activo</label></div>
       </div>
+      <?php if (ctb_imputaciones_instaladas()): ?>
+      <div class="campos" style="margin-top:6px">
+        <div class="campo" style="--span:6"><label for="id_cuenta_contable">Cuenta contable</label>
+          <?= ctb_select_cuenta('id_cuenta_contable', ctb_cuentas_imputables(), $reg['id_cuenta_contable'] ?? '', 'Sin asignar') ?>
+          <span class="campo-ayuda">el ingreso por este gasto en el asiento de la liquidación (el IVA va a la cuenta de IVA débito de Imputaciones contables)</span></div>
+      </div>
+      <?php endif; ?>
     </div>
     <div class="bloque">
       <div class="bloque-titulo">Valores sugeridos</div>
@@ -191,7 +208,9 @@ if ($reg):
             <?= !(int) $g['usos'] ? accion_post($lista, ['accion' => 'borrar', 'id' => $gid], 'borrar', 'Eliminar',
                                                  'Se elimina «' . $g['nombre'] . '»' . ($us ? ' y se quita de ' . count($us) . (count($us) === 1 ? ' tipo de asociado' : ' tipos de asociado') : '') . '. No se cobró en ningún préstamo.', 'borrar') : '' ?>
           </div></td>
-          <td class="td-fuerte"><a href="gastos_conceptos.php?edit=<?= $gid ?>"><?= h($g['nombre']) ?></a><span class="segunda-linea mono"><?= h($g['codigo']) ?></span></td>
+          <td class="td-fuerte"><a href="gastos_conceptos.php?edit=<?= $gid ?>"><?= h($g['nombre']) ?></a><span class="segunda-linea mono"><?= h($g['codigo']) ?></span>
+            <?php if (ctb_imputaciones_instaladas()): ?><span class="segunda-linea"><?= !empty($g['id_cuenta_contable'])
+                  ? 'contable ' . h(ctb_cuenta_txt($g['id_cuenta_contable'])) : '<span class="texto-error">sin cuenta contable</span>' ?></span><?php endif; ?></td>
           <td class="td-right"><?= (int) $g['lleva_iva'] ? pct($g['alicuota_iva']) : '<span class="td-muted">no</span>' ?></td>
           <td data-orden="<?= count($us) ?>">
             <?php if (!$us): ?><span class="td-muted">ningún tipo</span><?php endif; ?>

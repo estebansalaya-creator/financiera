@@ -510,14 +510,3 @@ function cs_tarjeta_cliente(int $idCliente, array $cliente, array $errores = [])
     return $out . '</tbody></table></div>' . paginacion_local() . '</div>';
 }
 
-/** Un botón de acción que pide el motivo antes de mandar el POST. */
-function accion_post_motivo(string $url, array $campos, string $titulo): string
-{
-    $ocultos = '';
-    foreach ($campos as $k => $v) {
-        $ocultos .= '<input type="hidden" name="' . h($k) . '" value="' . h((string) $v) . '">';
-    }
-    return '<form method="post" action="' . h($url) . '" class="form-en-linea" onsubmit="var m = prompt(\'' . h($titulo) . ': ¿por qué?\'); if (!m) return false; this.motivo.value = m;">'
-         . csrf_campo() . $ocultos . '<input type="hidden" name="motivo" value="">'
-         . '<button class="btn-accion borrar" title="' . h($titulo) . '" aria-label="' . h($titulo) . '">' . icono('cerrar') . '</button></form>';
-}

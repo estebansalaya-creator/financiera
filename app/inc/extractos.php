@@ -421,6 +421,18 @@ function ext_importar(array $cuenta, string $nombre, string $raw): array
     }
 }
 
+/**
+ * « OR (está en una conciliación abierta, conciliado o como excepción)», para
+ * sumar a la condición de conciliado. Vacío si la conciliación no está
+ * instalada. $t: el alias de extractos_bancarios.
+ */
+function ext_sql_en_conciliacion(string $t): string
+{
+    static $hay = null;
+    $hay ??= (bool) q1("SELECT 1 AS x FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'conciliacion_items'");
+    return $hay ? " OR EXISTS (SELECT 1 FROM conciliacion_items ci WHERE ci.id_extracto = $t.id_extracto AND ci.estado <> 'pendiente')" : '';
+}
+
 /** Deshace una importación: borra sus movimientos si ninguno está conciliado. Devuelve cuántos borró. */
 function ext_deshacer(int $idImportacion): int
 {
@@ -428,7 +440,7 @@ function ext_deshacer(int $idImportacion): int
     if (!$imp || $imp['resultado'] !== 'OK' || $imp['deshecha_el'] !== null) {
         throw new RuntimeException('Esa importación no existe o ya se deshizo.');
     }
-    $n = q1('SELECT COUNT(*) AS n, COALESCE(SUM(conciliado), 0) AS conc FROM extractos_bancarios WHERE id_importacion = ?', [$idImportacion]);
+    $n = q1('SELECT COUNT(*) AS n, COALESCE(SUM(conciliado' . ext_sql_en_conciliacion('e') . '), 0) AS conc FROM extractos_bancarios e WHERE id_importacion = ?', [$idImportacion]);
     if ((int) $n['conc'] > 0) {
         throw new RuntimeException('No se puede deshacer: ' . ((int) $n['conc'] === 1 ? 'uno de sus movimientos ya está conciliado.'
                                                                      : num($n['conc']) . ' de sus movimientos ya están conciliados.'));

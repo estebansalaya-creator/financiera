@@ -24,7 +24,7 @@ const TIPOS_CUENTA_ESTADO = ['B' => 'info', 'C' => 'ok', 'R' => 'warn', 'V' => '
 // COBRANZA, la de antes (un renglón por pago). En los filtros van juntas.
 const ORIGENES_FONDOS = ['COBRANZA' => 'Cobranza', 'DESEMBOLSO' => 'Desembolso', 'APORTE' => 'Aporte de inversor',
                          'PAGO_INVERSOR' => 'Pago a inversor', 'MOVIMIENTO' => 'Entre cuentas', 'PAGO_OP' => 'Orden de pago',
-                         'RECIBO' => 'Cobranza'];
+                         'RECIBO' => 'Cobranza', 'BANCARIO' => 'Gasto o ingreso bancario'];
 const TIPOS_MOV_CUENTAS = ['ENTRE_CUENTAS' => 'Entre cuentas', 'DEPOSITO' => 'Depósito bancario',
                            'EXTRACCION' => 'Extracción bancaria', 'INVERSION' => 'Inversión'];
 const INSTRUMENTOS = ['CHEQUE' => 'Cheque', 'TRANSFERENCIA' => 'Transferencia', 'DEPOSITO' => 'Depósito',
@@ -169,6 +169,12 @@ function origen_fondos_url(array $m): ?string
             return puede_abrir('movimientos_cuentas.php') ? 'movimientos_cuentas.php?id=' . $id : null;
         case 'PAGO_OP':
             return puede_abrir('ordenes_pago.php') ? 'ordenes_pago.php?pago=' . $id : null;
+        case 'BANCARIO':
+            if (!puede_abrir('conciliaciones.php')) {
+                return null;
+            }
+            $k = q1('SELECT id_conciliacion FROM comprobantes_bancarios WHERE id_comp_banco = ?', [$id]);
+            return $k && $k['id_conciliacion'] ? 'conciliaciones.php?id=' . (int) $k['id_conciliacion'] . '&solapa=conciliado' : null;
     }
     return null;
 }

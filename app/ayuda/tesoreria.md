@@ -133,7 +133,52 @@ Qué controla:
 
 Arriba: el **saldo del banco** (el último que informó), el **saldo del libro** a esa misma fecha (*Subdiario de cuentas de fondos*, sin anulados) y la **diferencia**, que es lo que explica la conciliación: gastos e impuestos del banco que todavía no están en el libro, y lo que el libro tiene y el banco todavía no vio (un cheque en circulación, una transferencia del día).
 
-El tacho borra un movimiento del extracto (no si está conciliado). **Exportar a Excel** trae todo lo filtrado.
+El tacho borra un movimiento del extracto (no si está conciliado o es una excepción en una conciliación). **Exportar a Excel** trae todo lo filtrado.
+
+## Conciliación bancaria
+<!-- pantallas: conciliaciones.php -->
+<!-- resumen: El extracto de cada cuenta banco contra el libro, mes por mes. -->
+
+Se concilia una **cuenta banco por mes**. De un lado, el extracto que se importó en *Extractos bancarios*; del otro, el libro: los *Débitos y créditos bancarios* que dejó cada comprobante. Cada renglón del extracto tiene que quedar **conciliado** (unido a uno o varios del libro por el mismo importe) o marcado como **excepción**.
+
+**Nueva conciliación**: la cuenta y el mes (se propone el que sigue). El **saldo inicial** es el saldo final de la conciliación anterior cerrada; la primera vez se carga a mano (se propone el que dice el extracto al cierre del mes anterior). Los meses van en orden y uno a la vez: para abrir el siguiente hay que cerrar el anterior. Lo del libro anterior a la primera conciliación de la cuenta ya está en el saldo inicial y no aparece.
+
+Arriba, los números del mes: saldo inicial, créditos y débitos del extracto, el **saldo final** calculado y si coincide con el que **informa el banco** en el último renglón, y cuánto falta conciliar.
+
+Solapa **Por conciliar**:
+
+- **Sugerencias**: los renglones que se pueden unir solos, uno con uno: el cobro que se emitió desde ese renglón del extracto (*Emisión de recibos*), los de mismo importe y misma referencia, y los de mismo importe a 7 días o menos (el más cercano). Se tildan o destildan y **Conciliar las elegidas**.
+- **Comprobantes a emitir**: lo que el banco cobró o acreditó por su cuenta (comisiones, IVA, impuesto a los débitos y créditos, percepciones, intereses) y que el libro todavía no tiene. Sale de la *Clasificación de conceptos*. **Emitir los elegidos** registra el gasto o ingreso bancario (o la transferencia a otra cuenta propia), con su renglón en el libro, y lo deja conciliado. Si la regla agrupa por día, va un comprobante por concepto y día.
+- **Extracto por conciliar** y **Libro por conciliar**: para unir a mano. Se tildan renglones de los dos lados; abajo se ve lo que suma cada lado y la diferencia. **Conciliar lo elegido** se habilita cuando la diferencia es cero. Sirve para un renglón contra varios (una transferencia que paga varias órdenes) o varios contra uno. Lo del libro que el banco todavía no informó (una transferencia del último día, un cheque en circulación) queda en la lista para el mes siguiente.
+- El ⚠ de un renglón del extracto lo marca como **excepción**, con el motivo: algo que no está en el libro y no se va a registrar este mes (un error del banco reclamado, un crédito sin identificar).
+
+Solapa **Conciliado**: cada vínculo con sus dos lados. **Desvincular** devuelve los renglones a *Por conciliar*; si el comprobante lo había emitido la conciliación, lo **anula** (y se puede volver a emitir).
+
+**Cerrar el período**: con todo el extracto conciliado o en excepción y, si el banco informa saldo, con el saldo calculado igual al del banco. Al cerrar, los renglones del extracto quedan marcados como conciliados (ya no se borran) y el saldo final pasa a la conciliación del mes siguiente. Se puede **reabrir** la última de la cuenta.
+
+**Exportar a Excel**: el extracto del mes con la situación de cada renglón, y lo pendiente del libro.
+
+## Clasificación de conceptos
+<!-- pantallas: conc_clasificar.php -->
+<!-- resumen: Qué es cada texto del extracto: gasto o ingreso bancario, transferencia o a mano. -->
+
+Los textos del extracto de una cuenta, sin repetir (*COMISION MANTENIMIENTO CUENTA*, *IMPUESTO LEY 25413 S/DEBITOS*…), primero los que faltan clasificar. Para cada uno se elige qué es:
+
+- un **concepto de tesorería** (un gasto o un ingreso bancario): la conciliación emite el comprobante;
+- una **transferencia a otra cuenta propia**: la conciliación registra el movimiento entre cuentas;
+- **se concilia a mano**: se reconoce (por ejemplo, las transferencias entre cuentas que ya están en el libro) pero no se emite nada.
+
+**Un comprobante por día** junta en un solo comprobante los renglones del mismo concepto del mismo día; destildado, va uno por renglón. **Emite el comprobante** destildado deja el renglón reconocido pero sin emitir.
+
+**Guardar** crea la regla (el texto «contiene»). La ✕ la quita: el texto vuelve a *sin clasificar* y lo ya conciliado no cambia. Si un texto lo reconoce otra regla (por ejemplo *IMPUESTO LEY 25413* reconoce los de débitos y de créditos), se ve cuál y se edita en la solapa **Reglas**.
+
+Solapa **Reglas**: todas, en el orden en que se prueban (gana la primera). Ahí se cargan las que necesitan otra comparación: *empieza con*, *es igual a* o una *expresión regular*, y solo para débitos o solo para créditos. **Probar un texto** dice qué regla lo reconoce.
+
+## Conceptos de tesorería
+<!-- pantallas: conceptos_tesoreria.php -->
+<!-- resumen: Los gastos e ingresos bancarios, con su cuenta contable. -->
+
+El catálogo de lo que el banco cobra o acredita por su cuenta: comisiones y gastos bancarios, IVA crédito fiscal, impuesto a los débitos y créditos, percepciones de IVA y de Ingresos Brutos (SIRCREB), intereses. Cada uno es un **gasto** o un **ingreso** y lleva su **cuenta contable**: contra ella va el asiento del comprobante bancario (*Contabilidad › Asientos contables*). Un concepto con reglas o comprobantes no se elimina: se desactiva. Son distintos de los *Conceptos de gasto* de *Tablas y parámetros*, que son lo que se le cobra al cliente al liquidar un préstamo.
 
 ## De dónde sale cada renglón
 <!-- resumen: Qué comprobante mueve qué cuenta. -->
@@ -145,5 +190,6 @@ El tacho borra un movimiento del extracto (no si está conciliado). **Exportar a
 | Aporte de un inversor | la elegida al cargarlo (de su moneda) | entra el capital | transferencia o depósito |
 | Pago a un inversor | la elegida al registrar el pago | sale lo pagado | transferencia, cheque o efectivo |
 | Movimiento entre cuentas | las dos | sale de una, entra en la otra | según el tipo |
+| Gasto o ingreso bancario (lo emite la *Conciliación bancaria*) | la del extracto | sale el gasto, entra el ingreso | débito automático o crédito |
 
 Las renovaciones de un aporte no mueven plata. Un pago anulado, un préstamo anulado o un aporte anulado sacan su renglón del saldo.

@@ -271,6 +271,18 @@ function accion_post(string $url, array $campos, string $icono, string $titulo, 
          . '<button class="btn-accion ' . h($clase) . '" title="' . h($titulo) . '" aria-label="' . h($titulo) . '">' . icono($icono) . '</button></form>';
 }
 
+/** Un botón de acción que pide el motivo antes de mandar el POST. */
+function accion_post_motivo(string $url, array $campos, string $titulo): string
+{
+    $ocultos = '';
+    foreach ($campos as $k => $v) {
+        $ocultos .= '<input type="hidden" name="' . h($k) . '" value="' . h((string) $v) . '">';
+    }
+    return '<form method="post" action="' . h($url) . '" class="form-en-linea" onsubmit="var m = prompt(\'' . h($titulo) . ': ¿por qué?\'); if (!m) return false; this.motivo.value = m;">'
+         . csrf_campo() . $ocultos . '<input type="hidden" name="motivo" value="">'
+         . '<button class="btn-accion borrar" title="' . h($titulo) . '" aria-label="' . h($titulo) . '">' . icono('cerrar') . '</button></form>';
+}
+
 /** Las solapas de una ficha (enlaces): $solapas = clave => [texto, url, conteo|null]. */
 function solapas(array $solapas, string $activa): string
 {

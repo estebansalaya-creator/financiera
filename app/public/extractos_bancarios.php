@@ -153,7 +153,7 @@ if (es_post() && $instalado) {
     if ($accion === 'borrar') {
         $volver = (string) ($_POST['volver'] ?? '');
         $volver = preg_match('#^extractos_bancarios\.php(\?[^\s]*)?$#', $volver) ? $volver : 'extractos_bancarios.php';
-        $st = db()->prepare('DELETE FROM extractos_bancarios WHERE id_extracto = ? AND conciliado = 0');
+        $st = db()->prepare('DELETE e FROM extractos_bancarios e WHERE e.id_extracto = ? AND NOT (e.conciliado = 1' . ext_sql_en_conciliacion('e') . ')');
         $st->execute([(int) post_str('id_extracto')]);
         flash($st->rowCount() ? 'ok' : 'warning', $st->rowCount() ? 'Movimiento borrado del extracto.' : 'No se borró: está conciliado o ya no existe.');
         redirigir($volver);
